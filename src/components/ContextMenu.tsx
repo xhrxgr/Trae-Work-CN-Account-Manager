@@ -8,6 +8,7 @@ interface ContextMenuProps {
   onUpdateToken: () => void;
   onCopyToken: () => void;
   onSwitchAccount: () => void;
+  onLaunchMulti?: () => void;
   onDelete: () => void;
   onEditNote?: () => void;
   isCurrent?: boolean;
@@ -21,6 +22,7 @@ export function ContextMenu({
   onUpdateToken,
   onCopyToken,
   onSwitchAccount,
+  onLaunchMulti,
   onDelete,
   onEditNote,
   isCurrent = false,
@@ -71,11 +73,21 @@ export function ContextMenu({
         <div
           className={`context-menu-item ${isCurrent ? "disabled" : ""}`}
           onClick={isCurrent ? undefined : onSwitchAccount}
-          title={isCurrent ? "当前已是此账号" : "切换账号"}
+          title={isCurrent ? "当前已是此账号" : "切换账号（关闭当前实例后启动）"}
         >
           <span className="icon">{isCurrent ? "✓" : "🔀"}</span>
           {isCurrent ? "当前使用中" : "切换账号"}
         </div>
+        {onLaunchMulti && (
+          <div
+            className="context-menu-item"
+            onClick={onLaunchMulti}
+            title="多开：启动独立实例，不影响当前实例"
+          >
+            <span className="icon">🚀</span>
+            多开实例
+          </div>
+        )}
         <div className="context-menu-divider" />
         <div className="context-menu-item danger" onClick={onDelete}>
           <span className="icon">🗑</span>

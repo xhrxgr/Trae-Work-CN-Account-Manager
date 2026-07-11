@@ -41,6 +41,11 @@ export async function switchAccount(accountId: string): Promise<void> {
   return invoke("switch_account", { accountId });
 }
 
+// 多开模式：启动独立的 TRAE Work CN 实例
+export async function launchAccountMulti(accountId: string): Promise<void> {
+  return invoke("launch_account_multi", { accountId });
+}
+
 // 更新账号 Token
 export async function updateAccountToken(accountId: string, token: string): Promise<void> {
   return invoke("update_account_token", { accountId, token });

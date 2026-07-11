@@ -83,6 +83,13 @@ async fn switch_account(account_id: String, state: State<'_, AppState>) -> Resul
     manager.switch_account(&account_id).map_err(Into::into)
 }
 
+/// 多开模式：为指定账号启动独立的 TRAE Work CN 实例
+#[tauri::command]
+async fn launch_account_multi(account_id: String, state: State<'_, AppState>) -> Result<()> {
+    let mut manager = state.account_manager.lock().await;
+    manager.launch_account_multi(&account_id).map_err(Into::into)
+}
+
 /// 导出所有账号为 JSON 字符串
 #[tauri::command]
 async fn export_accounts(state: State<'_, AppState>) -> Result<String> {
@@ -241,6 +248,7 @@ pub fn run() {
             get_account,
             update_account_note,
             switch_account,
+            launch_account_multi,
             export_accounts,
             export_accounts_to_file,
             import_accounts,

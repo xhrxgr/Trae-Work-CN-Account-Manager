@@ -145,6 +145,7 @@ pub fn is_product_running(_product_type: ProductType) -> bool {
 }
 
 /// 关闭指定产品进程
+/// 优化版：用轮询替代固定 sleep，通常 200-600ms 即可完成（原 1500ms+）
 #[cfg(target_os = "windows")]
 pub fn kill_product(product_type: ProductType) -> Result<()> {
     let display_name = product_type.display_name();
@@ -164,8 +165,15 @@ pub fn kill_product(product_type: ProductType) -> Result<()> {
             .output();
     }
 
-    // 等待一小段时间
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // 轮询等待进程退出（最多 800ms，每 100ms 检查一次）
+    let mut waited = 0;
+    while waited < 800 {
+        if !is_product_running(product_type) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        waited += 100;
+    }
 
     // 如果还在运行，强制关闭所有候选进程
     if is_product_running(product_type) {
@@ -185,14 +193,21 @@ pub fn kill_product(product_type: ProductType) -> Result<()> {
         }
     }
 
-    // 等待进程完全退出
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    // 轮询等待强制关闭完成（最多 500ms）
+    let mut waited = 0;
+    while waited < 500 {
+        if !is_product_running(product_type) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        waited += 50;
+    }
 
     if is_product_running(product_type) {
         return Err(anyhow!("无法关闭 {}，请手动关闭后重试", display_name));
     }
 
-    println!("[INFO] {} 已关闭", display_name);
+    println!("[INFO] {} 已关闭 (耗时 {}ms)", display_name, waited);
     Ok(())
 }
 
@@ -534,6 +549,61 @@ pub fn open_solo_cn() -> Result<()> {
     open_product(ProductType::TraeSoloCn)
 }
 
+/// 多开模式：用指定 data-dir 启动产品（不影响已运行的实例）
+/// data_dir: 独立数据目录路径；extensions_dir: 共享插件目录路径
+#[cfg(target_os = "windows")]
+pub fn open_product_with_data_dir(
+    product_type: ProductType,
+    data_dir: &str,
+    extensions_dir: Option<&str>,
+) -> Result<()> {
+    let exe_path = match get_saved_product_path(product_type) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            println!("[INFO] {} 路径未设置，尝试自动扫描...", product_type.display_name());
+            match scan_solo_cn_path() {
+                Ok(path) => PathBuf::from(path),
+                Err(_) => return Err(anyhow!(
+                    "未设置 {} 路径且自动扫描失败，请在设置中手动配置 TRAE SOLO CN.exe 的路径",
+                    product_type.display_name()
+                )),
+            }
+        }
+    };
+
+    if !exe_path.exists() {
+        return Err(anyhow!("{} 路径无效: {}", product_type.display_name(), exe_path.display()));
+    }
+
+    // 确保目标 data-dir 存在
+    fs::create_dir_all(data_dir)
+        .map_err(|e| anyhow!("创建多开数据目录失败: {}", e))?;
+
+    println!("[INFO] 多开启动 {}: data-dir={}", product_type.display_name(), data_dir);
+
+    let mut cmd = Command::new(&exe_path);
+    cmd.arg("--user-data-dir").arg(data_dir);
+    if let Some(ext_dir) = extensions_dir {
+        fs::create_dir_all(ext_dir).ok();
+        cmd.arg("--extensions-dir").arg(ext_dir);
+    }
+
+    cmd.spawn()
+        .map_err(|e| anyhow!("多开启动 {} 失败: {}", product_type.display_name(), e))?;
+
+    println!("[INFO] {} 多开实例已启动", product_type.display_name());
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn open_product_with_data_dir(
+    _product_type: ProductType,
+    _data_dir: &str,
+    _extensions_dir: Option<&str>,
+) -> Result<()> {
+    Err(anyhow!("此功能仅支持 Windows 系统"))
+}
+
 /// 账号登录信息结构（用于写入 Trae IDE）
 #[derive(Debug, Clone)]
 pub struct TraeLoginInfo {
@@ -835,6 +905,158 @@ pub fn clear_product_login_state(product_type: ProductType) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// 多开模式：为指定账号在独立 data-dir 中写入登录信息并启动新实例
+/// 不杀进程、不动默认数据目录、不影响其他运行中的实例
+///
+/// - info: 账号登录信息
+/// - machine_id: 绑定的机器码（None 则生成新的）
+/// - data_dir: 独立数据目录路径（由调用方提供，通常按 user_id 命名）
+/// - extensions_dir: 共享插件目录（None 则不指定，使用 data-dir 内默认位置）
+pub fn launch_product_multi(
+    info: &TraeLoginInfo,
+    machine_id: Option<&str>,
+    data_dir: &str,
+    extensions_dir: Option<&str>,
+) -> Result<()> {
+    let product_type = ProductType::TraeSoloCn;
+    let display_name = product_type.display_name();
+    let data_path = PathBuf::from(data_dir);
+
+    // 确保目录存在
+    fs::create_dir_all(&data_path)
+        .map_err(|e| anyhow!("创建多开数据目录失败: {}", e))?;
+
+    // 1. 写入机器码（data-dir 内的 machineid，不动系统注册表）
+    let new_machine_id = match machine_id {
+        Some(mid) => mid.to_string(),
+        None => generate_machine_guid(),
+    };
+    let machine_id_path = data_path.join("machineid");
+    fs::write(&machine_id_path, &new_machine_id)
+        .map_err(|e| anyhow!("写入 {} 多开机器码失败: {}", display_name, e))?;
+    println!("[INFO] 已设置 {} 多开机器码: {}", display_name, new_machine_id);
+
+    // 2. 写入登录信息到 storage.json（复用加密逻辑）
+    let storage_dir = data_path.join("User").join("globalStorage");
+    fs::create_dir_all(&storage_dir)
+        .map_err(|e| anyhow!("创建目录失败: {}", e))?;
+    let storage_path = storage_dir.join("storage.json");
+
+    let mut json: serde_json::Value = if storage_path.exists() {
+        let content = fs::read_to_string(&storage_path)
+            .map_err(|e| anyhow!("读取 storage.json 失败: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let obj = json.as_object_mut()
+        .ok_or_else(|| anyhow!("storage.json 格式错误"))?;
+
+    // 移除旧的登录信息
+    obj.remove("iCubeAuthInfo://icube.cloudide");
+    obj.remove("iCubeEntitlementInfo://icube.cloudide");
+    obj.remove("iCubeServerData://icube.cloudide");
+    obj.remove("iCubeAuthInfo://usertag");
+
+    // 更新 telemetry ID
+    let new_telemetry_id = format!("{:x}", md5_hash(&new_machine_id));
+    obj.insert("telemetry.machineId".to_string(), serde_json::Value::String(new_telemetry_id));
+    obj.insert("telemetry.sqmId".to_string(), serde_json::Value::String(format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase())));
+    obj.insert("telemetry.devDeviceId".to_string(), serde_json::Value::String(Uuid::new_v4().to_string()));
+
+    // 3. 构建 iCubeAuthInfo（加密写入）
+    let now = chrono::Utc::now();
+    let expired_at = now + chrono::Duration::days(14);
+    let refresh_expired_at = now + chrono::Duration::days(180);
+
+    let host = if info.host.is_empty() {
+        match info.region.to_uppercase().as_str() {
+            "SG" => "https://api-sg-central.trae.ai",
+            "CN" => "https://api.trae.cn",
+            _ => "https://api-sg-central.trae.ai",
+        }
+    } else {
+        &info.host
+    };
+
+    let auth_info = serde_json::json!({
+        "token": info.token,
+        "refreshToken": info.refresh_token.clone().unwrap_or_default(),
+        "expiredAt": expired_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "refreshExpiredAt": refresh_expired_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "tokenReleaseAt": now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "userId": info.user_id,
+        "host": host,
+        "userRegion": {
+            "region": info.region.to_uppercase(),
+            "_aiRegion": info.region.to_uppercase()
+        },
+        "account": {
+            "username": info.username,
+            "iss": "",
+            "iat": 0,
+            "organization": "",
+            "work_country": "",
+            "email": info.email,
+            "avatar_url": info.avatar_url,
+            "description": "",
+            "scope": "marscode",
+            "loginScope": "trae",
+            "storeCountryCode": "cn",
+            "storeCountrySrc": "uid",
+            "storeRegion": info.region.to_uppercase(),
+            "userTag": "row"
+        }
+    });
+
+    let entitlement_info = serde_json::json!({
+        "identityStr": "Free",
+        "identity": 0,
+        "isPayFreshman": false,
+        "isSupportCommercialization": true,
+        "hasPackage": false,
+        "enableEntitlement": true,
+        "detail": {
+            "can_gen_solo_code": false,
+            "fast_request_per": 1,
+            "in_wait": false,
+            "permission": 1,
+            "toast_read": false,
+            "toastRead": false,
+            "canGenSoloCode": false,
+            "fastRequestPer": 1,
+            "inWaitlist": false
+        }
+    });
+
+    let auth_info_plain = serde_json::to_string(&auth_info)
+        .map_err(|e| anyhow!("序列化 auth_info 失败: {}", e))?;
+    let auth_info_encrypted = encrypt_solo_cn_auth_info(&auth_info_plain)?;
+    obj.insert(
+        "iCubeAuthInfo://icube.cloudide".to_string(),
+        serde_json::Value::String(auth_info_encrypted)
+    );
+    obj.insert(
+        "iCubeEntitlementInfo://icube.cloudide".to_string(),
+        serde_json::Value::String(serde_json::to_string(&entitlement_info).unwrap())
+    );
+
+    // 写回（最后一次性写入，包含 telemetry + 登录信息）
+    let new_content = serde_json::to_string_pretty(&json)
+        .map_err(|e| anyhow!("序列化 JSON 失败: {}", e))?;
+    fs::write(&storage_path, new_content)
+        .map_err(|e| anyhow!("写入 storage.json 失败: {}", e))?;
+
+    println!("[INFO] 已写入 {} 多开登录信息: {}", display_name, info.email);
+
+    // 4. 启动多开实例
+    open_product_with_data_dir(product_type, data_dir, extensions_dir)?;
+
+    println!("[INFO] {} 多开已启动: {}", display_name, info.email);
     Ok(())
 }
 

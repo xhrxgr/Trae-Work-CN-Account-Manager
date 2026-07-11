@@ -34,6 +34,10 @@ pub struct Account {
     /// 用户自定义备注
     #[serde(default)]
     pub note: Option<String>,
+    /// 多开模式绑定的独立数据目录路径
+    /// None=使用默认目录(单实例切换模式), Some=多开模式专属目录
+    #[serde(default)]
+    pub data_dir: Option<String>,
 }
 
 impl Account {
@@ -63,6 +67,7 @@ impl Account {
             machine_id: None,
             source: String::new(),
             note: None,
+            data_dir: None,
         }
     }
 }
@@ -108,6 +113,9 @@ pub struct AccountBrief {
     /// 用户自定义备注
     #[serde(default)]
     pub note: Option<String>,
+    /// 多开模式绑定的独立数据目录路径
+    #[serde(default)]
+    pub data_dir: Option<String>,
 }
 
 impl From<&Account> for AccountBrief {
@@ -125,6 +133,7 @@ impl From<&Account> for AccountBrief {
             token_expired_at: account.token_expired_at.clone(),
             source: account.source.clone(),
             note: account.note.clone(),
+            data_dir: account.data_dir.clone(),
         }
     }
 }
@@ -145,6 +154,7 @@ impl AccountBrief {
             token_expired_at: account.token_expired_at.clone(),
             source: account.source.clone(),
             note: account.note.clone(),
+            data_dir: account.data_dir.clone(),
         }
     }
 }

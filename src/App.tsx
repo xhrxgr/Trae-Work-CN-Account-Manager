@@ -216,6 +216,21 @@ function App() {
     });
   };
 
+  // 多开实例
+  const handleLaunchMulti = async (accountId: string) => {
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) return;
+
+    addToast("info", `正在多开账号 "${account.email || account.name}"，请稍候...`);
+    try {
+      await api.launchAccountMulti(accountId);
+      await loadAccounts();
+      addToast("success", "多开实例已启动");
+    } catch (err: any) {
+      addToast("error", err.message || "多开失败");
+    }
+  };
+
   // 查看详情
   const handleViewDetail = async (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId);
@@ -604,6 +619,10 @@ function App() {
           }}
           onSwitchAccount={() => {
             handleSwitchAccount(contextMenu.accountId);
+            setContextMenu(null);
+          }}
+          onLaunchMulti={() => {
+            handleLaunchMulti(contextMenu.accountId);
             setContextMenu(null);
           }}
           onDelete={() => {

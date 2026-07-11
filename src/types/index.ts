@@ -12,6 +12,7 @@ export interface AccountBrief {
   token_expired_at: string | null; // Token 过期时间
   source: string; // 账号来源: "browser", "local", "manual"
   note: string | null; // 用户自定义备注
+  data_dir: string | null; // 多开模式绑定的独立数据目录
 }
 
 // 完整账号信息
@@ -33,6 +34,7 @@ export interface Account {
   machine_id: string | null;
   source: string;
   note: string | null;
+  data_dir: string | null;
 }
 
 // API 错误

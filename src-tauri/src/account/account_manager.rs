@@ -265,6 +265,76 @@ impl AccountManager {
         Ok(())
     }
 
+    /// 多开模式：为指定账号启动一个独立的 TRAE Work CN 实例
+    /// 不杀进程、不影响其他实例，使用账号绑定的独立 data-dir
+    /// 首次多开时自动创建 data-dir 并绑定到账号，后续复用
+    pub fn launch_account_multi(&mut self, account_id: &str) -> Result<()> {
+        let account = self.store.accounts.iter()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| anyhow!("账号不存在"))?
+            .clone();
+
+        let token = account.jwt_token.as_ref()
+            .ok_or_else(|| anyhow!("账号没有有效的 Token，无法多开"))?;
+
+        // 构建登录信息
+        let login_info = crate::machine::TraeLoginInfo {
+            token: token.clone(),
+            refresh_token: None,
+            user_id: account.user_id.clone(),
+            email: account.email.clone(),
+            username: account.name.clone(),
+            avatar_url: account.avatar_url.clone(),
+            host: String::new(),
+            region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+        };
+
+        // 多开 data-dir：按 user_id 命名，放在 APPDATA 下与默认目录平级
+        #[cfg(target_os = "windows")]
+        let appdata = std::env::var("APPDATA")
+            .map_err(|_| anyhow!("无法获取 APPDATA 环境变量"))?;
+        #[cfg(target_os = "macos")]
+        let appdata = std::env::var("HOME")
+            .map_err(|_| anyhow!("无法获取 HOME 环境变量"))?;
+
+        #[cfg(target_os = "windows")]
+        let base_dir = PathBuf::from(&appdata);
+        #[cfg(target_os = "macos")]
+        let base_dir = PathBuf::from(&appdata).join("Library").join("Application Support");
+
+        let multi_dir = base_dir.join(format!("TRAE SOLO CN_{}", &account.user_id));
+        let multi_dir_str = multi_dir.to_string_lossy().to_string();
+
+        // 共享插件目录（所有多开实例共用一份插件）
+        #[cfg(target_os = "windows")]
+        let shared_ext_dir = PathBuf::from(&appdata).join("TRAE SOLO CN_SharedExtensions");
+        #[cfg(target_os = "macos")]
+        let shared_ext_dir = PathBuf::from(&appdata).join("Library").join("Application Support")
+            .join("TRAE SOLO CN_SharedExtensions");
+        let shared_ext_str = shared_ext_dir.to_string_lossy().to_string();
+
+        // 调用多开启动
+        crate::machine::launch_product_multi(
+            &login_info,
+            account.machine_id.as_deref(),
+            &multi_dir_str,
+            Some(&shared_ext_str),
+        )?;
+
+        // 绑定 data-dir 到账号（首次多开时记录，后续复用）
+        let need_save = account.data_dir.is_none();
+        if need_save {
+            if let Some(acc) = self.store.accounts.iter_mut().find(|a| a.id == account_id) {
+                acc.data_dir = Some(multi_dir_str.clone());
+                acc.updated_at = chrono::Utc::now().timestamp();
+            }
+            self.save_store()?;
+        }
+
+        println!("[INFO] 已多开 TRAE Work CN 账号: {} (data-dir: {})", account.email, multi_dir_str);
+        Ok(())
+    }
+
     /// 绑定当前系统机器码到账号
     pub fn bind_machine_id(&mut self, account_id: &str) -> Result<String> {
         // 获取当前系统机器码
