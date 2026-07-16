@@ -292,7 +292,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
                     <img src={acc.avatar_url} alt="" className="avatar" />
                   )}
                   <div>
-                    <div>{acc.name}</div>
+                    <div>{acc.note || acc.name}</div>
                     <div className="muted">{acc.email}</div>
                   </div>
                 </div>

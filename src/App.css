@@ -1288,7 +1288,7 @@ body {
 }
 
 .tab-btn:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .tab-btn.active {
@@ -1657,7 +1657,7 @@ body {
 .error-message {
   margin-top: 12px;
   padding: 10px 12px;
-  background: #fef2f2;
+  background: var(--danger-bg);
   border-radius: 6px;
   color: var(--danger);
   font-size: 14px;
@@ -1683,7 +1683,7 @@ body {
 }
 
 .modal-actions button:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .modal-actions button.primary {
@@ -1820,14 +1820,14 @@ body {
 }
 
 .login-btn-secondary:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
   border-color: var(--accent);
 }
 
 .login-steps {
-  background: #f8f9fa;
-  border-radius: 8px;
   padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
   margin-top: 20px;
   text-align: left;
 }
@@ -2122,7 +2122,7 @@ body {
   justify-content: center;
   padding: 80px 40px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-lg);
@@ -2449,7 +2449,7 @@ body {
 }
 
 .chart-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--bg-glass-strongest);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 12px;
@@ -2509,7 +2509,7 @@ body {
 .chart-tab {
   padding: 6px 12px;
   border: none;
-  background: #f3f4f6;
+  background: var(--bg-hover);
   border-radius: 6px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -2518,7 +2518,7 @@ body {
 }
 
 .chart-tab:hover {
-  background: #e5e7eb;
+  background: var(--bg-active);
 }
 
 .chart-tab.active {
@@ -2640,13 +2640,13 @@ body {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--bg-secondary);
   border-radius: 12px;
   transition: all 0.2s;
 }
 
 .preview-item:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .preview-avatar {
@@ -2692,7 +2692,7 @@ body {
 .preview-progress {
   width: 60px;
   height: 6px;
-  background: #e5e7eb;
+  background: var(--border);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -2810,7 +2810,7 @@ body {
 }
 
 .setting-btn:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .setting-btn.danger {
@@ -2819,7 +2819,7 @@ body {
 }
 
 .setting-btn.danger:hover {
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 
 .setting-item.danger .setting-label {
@@ -3224,22 +3224,22 @@ body {
 }
 
 .toast-success .toast-icon {
-  background: #ecfdf5;
+  background: var(--success-bg);
   color: var(--success);
 }
 
 .toast-error .toast-icon {
-  background: #fef2f2;
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
 .toast-info .toast-icon {
-  background: #eef2ff;
+  background: var(--info-bg);
   color: var(--accent);
 }
 
 .toast-warning .toast-icon {
-  background: #fffbeb;
+  background: var(--warning-bg);
   color: var(--warning);
 }
 
@@ -3345,12 +3345,12 @@ body {
 }
 
 .confirm-btn.cancel {
-  background: #f3f4f6;
+  background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
 .confirm-btn.cancel:hover {
-  background: #e5e7eb;
+  background: var(--bg-active);
 }
 
 .confirm-btn.danger {
@@ -3567,13 +3567,13 @@ body {
 
 /* Account List View - 列表视图 */
 .account-list {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--bg-glass-strongest);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
-  border: 1px solid rgba(228, 228, 231, 0.5);
+  border: 1px solid var(--border-glass-strong);
 }
 
 .list-header {
@@ -4061,7 +4061,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-lg);
@@ -4163,11 +4163,11 @@ body {
 
 .tag.current {
   background: linear-gradient(135deg, #059669 0%, #10b981 100%);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 
 .tag.current svg {
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 
 /* Context Menu Disabled State */
@@ -4189,7 +4189,7 @@ body {
 
 /* Info Modal - 信息展示模态框 */
 .info-modal {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-strongest);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: 12px;
