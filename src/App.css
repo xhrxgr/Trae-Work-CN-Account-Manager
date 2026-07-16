@@ -4538,17 +4538,24 @@ body {
 }
 
 .btn-launch {
-  background: var(--primary);
+  background: var(--gradient-accent);
   color: white;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition);
+  box-shadow: 0 2px 4px rgba(14, 165, 233, 0.2);
 }
 
 .btn-launch:hover {
-  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(14, 165, 233, 0.3);
 }
 
 .muted {

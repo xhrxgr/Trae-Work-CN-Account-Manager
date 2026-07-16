@@ -23,13 +23,19 @@ impl InstanceManager {
     /// 创建实例管理器，自动执行迁移
     pub fn new(account_manager: &AccountManager) -> Result<Self> {
         let data_path = Self::get_data_path()?;
-        let store = if data_path.exists() {
+        let mut store = if data_path.exists() {
             let content = fs::read_to_string(&data_path)?;
             serde_json::from_str(&content).unwrap_or_default()
         } else {
             // 首次启动：执行迁移
             Self::migrate_from_accounts(account_manager)?
         };
+
+        // v1.0.10+ 清理：移除未绑定账号的非默认实例（旧的自动迁移脏数据）
+        // 避免"我没创建却跑出来"的问题
+        store.instances.retain(|inst| {
+            inst.is_default || inst.bound_account_id.is_some()
+        });
 
         Ok(Self { store, data_path, disk_cache: HashMap::new() })
     }
@@ -48,46 +54,31 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// 从 accounts.json 迁移到 instances.json
+    /// 从 accounts.json 迁移到 instances.json（首次启动 v1.0.8 时调用）
+    /// 只创建默认实例，不自动从旧账号的 data_dir 创建多开实例（避免用户困惑）
+    /// 用户如果想保留某个旧多开实例，可以手动用「创建实例」功能
     fn migrate_from_accounts(account_manager: &AccountManager) -> Result<InstanceStore> {
-        println!("[INFO] 首次启动，执行实例迁移...");
-        let accounts = account_manager.get_all_accounts();
+        use super::types::TraeInstance;
+        let _accounts = account_manager.get_all_accounts();
         let mut instances: Vec<TraeInstance> = Vec::new();
 
-        // 1. 创建默认实例
+        // 1. 创建默认实例（指向 %APPDATA%\TRAE SOLO CN）
         #[cfg(target_os = "windows")]
         let default_data_dir = std::env::var("APPDATA")
             .map(|p| PathBuf::from(p).join("TRAE SOLO CN").to_string_lossy().to_string())
             .unwrap_or_else(|_| "TRAE SOLO CN".to_string());
-        #[cfg(not(target_os = "windows"))]
-        let default_data_dir = machine::get_product_data_path(machine::ProductType::TraeSoloCn)
-            .to_string_lossy().to_string();
 
-        let mut default_instance = TraeInstance::new(
+        let default_instance = TraeInstance::new(
             "默认".to_string(),
             default_data_dir,
             true,
         );
-        // 默认实例绑定当前账号
-        default_instance.bound_account_id = account_manager.get_current_account_id();
+        // 默认实例不自动绑定账号，由用户自己在「账号管理」页切换
         instances.push(default_instance);
 
-        // 2. 为有 data_dir 的账号创建多开实例
-        for acc in accounts {
-            if let Some(data_dir) = &acc.data_dir {
-                if !data_dir.is_empty() {
-                    let name = acc.note.clone()
-                        .unwrap_or_else(|| format!("实例-{}", &acc.user_id));
-                    let mut inst = TraeInstance::new(name.clone(), data_dir.clone(), false);
-                    inst.bound_account_id = Some(acc.id.clone());
-                    inst.machine_id = acc.machine_id.clone();
-                    instances.push(inst);
-                    println!("[INFO] 迁移实例: {} -> {}", name, data_dir);
-                }
-            }
-        }
-
-        println!("[INFO] 迁移完成，共 {} 个实例", instances.len());
+        // 不再自动从旧账号的 data_dir 创建多开实例，避免用户困惑（用户没创建却跑出来）
+        // 用户如果想保留某个旧多开实例，可以手动用「创建实例」功能
+        println!("[INFO] 迁移完成，创建 1 个默认实例（其他实例由用户手动创建）");
         Ok(InstanceStore { instances })
     }
 

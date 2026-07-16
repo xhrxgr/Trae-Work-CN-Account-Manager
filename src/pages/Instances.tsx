@@ -5,6 +5,7 @@ import { InstanceCard } from "../components/InstanceCard";
 import { CreateInstanceModal } from "../components/CreateInstanceModal";
 import { ContextMenu } from "../components/ContextMenu";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { useToast } from "../hooks/useToast";
 
 interface InstancesProps {
   accounts: AccountBrief[];
@@ -15,6 +16,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
   const [instances, setInstances] = useState<InstanceBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const { addToast } = useToast();
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -27,6 +29,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     title: string;
     message: string;
     deleteData: boolean;
+    type: "danger" | "warning" | "info";
     onConfirm: () => void;
   } | null>(null);
 
@@ -57,17 +60,32 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     return () => clearInterval(interval);
   }, [loadInstances]);
 
-  // 启动实例
-  const handleLaunch = async (instanceId: string) => {
-    try {
-      const wasRunning = await api.launchInstance(instanceId);
-      if (wasRunning) {
-        alert("该实例已在运行，已启动新进程");
-      }
-      await loadInstances();
-    } catch (err: any) {
-      alert(err.message || "启动失败");
-    }
+  // 启动实例（先弹确认框，避免误触直接打开 TRAE）
+  const handleLaunch = (instanceId: string) => {
+    const inst = instances.find((i) => i.id === instanceId);
+    if (!inst) return;
+    const actionDesc = inst.is_running ? "新开窗口" : "启动";
+    setConfirmModal({
+      isOpen: true,
+      title: `${actionDesc}实例`,
+      message: `确定要${actionDesc}实例 "${inst.name}" 吗？`,
+      deleteData: false,
+      type: "info",
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          const wasRunning = await api.launchInstance(instanceId);
+          if (wasRunning) {
+            addToast("info", "该实例已在运行，已启动新进程");
+          } else {
+            addToast("success", "实例已启动");
+          }
+          await loadInstances();
+        } catch (err: any) {
+          addToast("error", err.message || "启动失败");
+        }
+      },
+    });
   };
 
   // 打开数据目录
@@ -99,6 +117,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       title: "删除实例",
       message: `确定删除实例 "${inst.name}" 吗？\n\n点击"确定"将删除实例配置和数据目录。`,
       deleteData: true,
+      type: "danger",
       onConfirm: () => {
         const delData = confirmModal?.deleteData ?? false;
         api.deleteInstance(instanceId, delData)
@@ -229,7 +248,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
           isOpen={confirmModal.isOpen}
           title={confirmModal.title}
           message={confirmModal.message}
-          type="danger"
+          type={confirmModal.type}
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal(null)}
         />
