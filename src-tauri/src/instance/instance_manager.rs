@@ -86,10 +86,10 @@ impl InstanceManager {
     pub fn list_instances_basic(&self, account_manager: &AccountManager) -> Vec<InstanceBrief> {
         let accounts = account_manager.get_all_accounts();
         self.store.instances.iter().map(|inst| {
-            let (email, name, avatar) = inst.bound_account_id.as_ref()
+            let (email, name, avatar, note) = inst.bound_account_id.as_ref()
                 .and_then(|aid| accounts.iter().find(|a| &a.id == aid))
-                .map(|a| (Some(a.email.clone()), Some(a.name.clone()), Some(a.avatar_url.clone())))
-                .unwrap_or((None, None, None));
+                .map(|a| (Some(a.email.clone()), Some(a.name.clone()), Some(a.avatar_url.clone()), a.note.clone()))
+                .unwrap_or((None, None, None, None));
 
             InstanceBrief {
                 id: inst.id.clone(),
@@ -100,6 +100,7 @@ impl InstanceManager {
                 bound_account_email: email,
                 bound_account_name: name,
                 bound_account_avatar: avatar,
+                bound_account_note: note,
                 machine_id: inst.machine_id.clone(),
                 created_at: inst.created_at,
                 disk_usage: 0,

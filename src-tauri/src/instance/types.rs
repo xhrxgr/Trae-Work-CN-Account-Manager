@@ -42,6 +42,8 @@ pub struct InstanceBrief {
     pub bound_account_name: Option<String>,
     /// 绑定账号的头像
     pub bound_account_avatar: Option<String>,
+    /// 绑定账号的备注
+    pub bound_account_note: Option<String>,
     pub machine_id: Option<String>,
     pub created_at: i64,
     /// 磁盘占用（字节）

@@ -58,7 +58,7 @@ export function CreateInstanceModal({ accounts, onClose, onCreated }: CreateInst
             <option value="">不绑定（首次启动手动登录）</option>
             {accounts.map((acc) => (
               <option key={acc.id} value={acc.id}>
-                {acc.name} ({acc.email})
+                {acc.note ? `${acc.name} · ${acc.note}` : acc.name} ({acc.email})
               </option>
             ))}
           </select>

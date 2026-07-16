@@ -47,6 +47,7 @@ export interface InstanceBrief {
   bound_account_email: string | null;
   bound_account_name: string | null;
   bound_account_avatar: string | null;
+  bound_account_note: string | null;
   machine_id: string | null;
   created_at: number;
   disk_usage: number;
