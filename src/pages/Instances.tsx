@@ -190,6 +190,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
               key={inst.id}
               instance={inst}
               onLaunch={() => handleLaunch(inst.id)}
+              onBindAccount={() => handleSwitchAccount(inst.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, instanceId: inst.id });
@@ -214,6 +215,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          contextType="instance"
           onClose={() => setContextMenu(null)}
           onViewDetail={() => {
             handleLaunch(contextMenu.instanceId);

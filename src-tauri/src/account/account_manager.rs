@@ -392,6 +392,11 @@ impl AccountManager {
         self.store.accounts.iter().find(|a| a.id == account_id)
     }
 
+    /// 通过 user_id 查找账号
+    pub fn find_account_by_user_id(&self, user_id: &str) -> Option<&Account> {
+        self.store.accounts.iter().find(|a| a.user_id == user_id)
+    }
+
     /// 获取当前登录账号 ID
     pub fn get_current_account_id(&self) -> Option<String> {
         self.store.current_account_id.clone()

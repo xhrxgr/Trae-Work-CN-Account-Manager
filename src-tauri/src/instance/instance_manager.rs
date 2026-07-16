@@ -32,10 +32,29 @@ impl InstanceManager {
         };
 
         // v1.0.10+ 清理：移除未绑定账号的非默认实例（旧的自动迁移脏数据）
-        // 避免"我没创建却跑出来"的问题
         store.instances.retain(|inst| {
             inst.is_default || inst.bound_account_id.is_some()
         });
+
+        // 尝试自动绑定：对每个未绑定账号的实例，检测其 data-dir 是否已登录
+        let mut need_save = false;
+        for inst in store.instances.iter_mut() {
+            if inst.bound_account_id.is_some() {
+                continue;
+            }
+            if let Ok(Some((user_id, _))) = machine::read_trae_login_from_dir(&inst.data_dir) {
+                if let Some(account) = account_manager.find_account_by_user_id(&user_id) {
+                    inst.bound_account_id = Some(account.id.clone());
+                    inst.updated_at = chrono::Utc::now().timestamp();
+                    need_save = true;
+                    println!("[INFO] 自动绑定实例 '{}' -> 账号 '{}'", inst.name, account.name);
+                }
+            }
+        }
+        if need_save {
+            let content = serde_json::to_string_pretty(&store)?;
+            fs::write(&data_path, content)?;
+        }
 
         Ok(Self { store, data_path, disk_cache: HashMap::new() })
     }

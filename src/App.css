@@ -4562,6 +4562,17 @@ body {
   color: var(--text-muted);
 }
 
+.bind-hint {
+  cursor: pointer;
+  transition: color var(--transition);
+  padding: 4px 0;
+}
+
+.bind-hint:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .account-select-item {
   display: flex;
   align-items: center;

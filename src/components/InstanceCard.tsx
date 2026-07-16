@@ -4,6 +4,7 @@ interface InstanceCardProps {
   instance: InstanceBrief;
   onLaunch: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onBindAccount?: () => void;
 }
 
 function formatDiskUsage(bytes: number): string {
@@ -18,7 +19,7 @@ function formatDiskUsage(bytes: number): string {
   return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function InstanceCard({ instance, onLaunch, onContextMenu }: InstanceCardProps) {
+export function InstanceCard({ instance, onLaunch, onContextMenu, onBindAccount }: InstanceCardProps) {
   return (
     <div
       className={`instance-card ${instance.is_default ? "default" : ""} ${instance.is_running ? "running" : ""}`}
@@ -46,7 +47,9 @@ export function InstanceCard({ instance, onLaunch, onContextMenu }: InstanceCard
             </div>
           </div>
         ) : (
-          <div className="instance-account muted">未绑定账号</div>
+          <div className="instance-account muted bind-hint" onClick={onBindAccount} title="点击选择要绑定的账号">
+            未绑定账号 → 点击绑定
+          </div>
         )}
 
         <div className="instance-disk">
