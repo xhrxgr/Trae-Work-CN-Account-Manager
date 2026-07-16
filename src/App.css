@@ -81,6 +81,14 @@
   --transition-fast: 0.15s ease;
   --transition: 0.2s ease;
   --transition-slow: 0.3s ease;
+
+  /* 毛玻璃半透明背景 - 深色模式会覆盖 */
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  --bg-glass-strong: rgba(255, 255, 255, 0.8);
+  --bg-glass-stronger: rgba(255, 255, 255, 0.9);
+  --bg-glass-strongest: rgba(255, 255, 255, 0.95);
+  --border-glass: rgba(228, 228, 231, 0.3);
+  --border-glass-strong: rgba(228, 228, 231, 0.5);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -116,6 +124,13 @@
     --shadow-accent: 0 8px 16px rgba(14, 165, 233, 0.2);
 
     --gradient-card: linear-gradient(145deg, #1c1c28 0%, #14141e 100%);
+
+    --bg-glass: rgba(28, 28, 40, 0.75);
+    --bg-glass-strong: rgba(28, 28, 40, 0.85);
+    --bg-glass-stronger: rgba(28, 28, 40, 0.93);
+    --bg-glass-strongest: rgba(28, 28, 40, 0.97);
+    --border-glass: rgba(42, 42, 62, 0.4);
+    --border-glass-strong: rgba(42, 42, 62, 0.6);
   }
 }
 
@@ -141,13 +156,13 @@ body {
 /* Sidebar */
 .sidebar {
   width: 288px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--bg-glass);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  border-right: 1px solid rgba(228, 228, 231, 0.3);
+  border-right: 1px solid var(--border-glass);
 }
 
 .sidebar-logo {
@@ -258,7 +273,7 @@ body {
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid rgba(228, 228, 231, 0.5);
+  border-top: 1px solid var(--border-glass-strong);
 }
 
 .sidebar-footer .version {
@@ -299,10 +314,10 @@ body {
 /* Page Header - 通用页面头部样式 */
 .page-header {
   padding: 18px 24px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px) saturate(180%);
   -webkit-backdrop-filter: blur(10px) saturate(180%);
-  border-bottom: 1px solid rgba(228, 228, 231, 0.5);
+  border-bottom: 1px solid var(--border-glass-strong);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -427,9 +442,9 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border: 1px solid rgba(228, 228, 231, 0.6);
+  border: 1px solid var(--border-glass-strong);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--text-secondary);
@@ -440,7 +455,7 @@ body {
 }
 
 .header-btn:hover {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-stronger);
   border-color: var(--accent);
   color: var(--accent);
   transform: translateY(-1px);
@@ -536,12 +551,12 @@ body {
   align-items: center;
   margin-bottom: 20px;
   padding: 14px 18px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  border: 1px solid rgba(228, 228, 231, 0.5);
+  border: 1px solid var(--border-glass-strong);
 }
 
 .toolbar-left {
@@ -602,9 +617,9 @@ body {
   align-items: center;
   gap: 6px;
   padding: 7px 12px;
-  border: 1px solid rgba(228, 228, 231, 0.6);
+  border: 1px solid var(--border-glass-strong);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-glass-strong);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--text-secondary);
@@ -706,7 +721,7 @@ body {
 
 /* Account Card - 账号卡片 */
 .account-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--bg-glass-stronger);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius-lg);
@@ -744,7 +759,7 @@ body {
 .account-card.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15), var(--shadow-hover);
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-strongest);
 }
 
 .account-card.selected::after {
@@ -1238,7 +1253,7 @@ body {
 }
 
 .modal-content {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-strongest);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: 10px;

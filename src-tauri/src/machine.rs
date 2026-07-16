@@ -1391,60 +1391,6 @@ pub fn clear_solo_cn_login_state() -> Result<()> {
     clear_product_login_state(ProductType::TraeSoloCn)
 }
 
-/// 从指定 data-dir 读取当前已登录的 TRAE 账号信息
-/// 返回 (user_id, token)，如果未登录或读取失败返回 None
-#[cfg(target_os = "windows")]
-pub fn read_trae_login_from_dir(data_dir: &str) -> Result<Option<(String, String)>> {
-    let storage_path = std::path::Path::new(data_dir)
-        .join("User")
-        .join("globalStorage")
-        .join("storage.json");
-
-    if !storage_path.exists() {
-        return Ok(None);
-    }
-
-    let content = std::fs::read_to_string(&storage_path)
-        .map_err(|e| anyhow!("读取 storage.json 失败: {}", e))?;
-
-    let storage: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| anyhow!("解析 storage.json 失败: {}", e))?;
-
-    let auth_info_str = match storage
-        .get("iCubeAuthInfo://icube.cloudide")
-        .and_then(|v| v.as_str())
-    {
-        Some(s) => s.to_string(),
-        None => return Ok(None),
-    };
-
-    let auth_info: serde_json::Value = match serde_json::from_str(&auth_info_str) {
-        Ok(json) => json,
-        Err(_) => {
-            let decrypted = decrypt_solo_cn_auth_info(&auth_info_str)?;
-            serde_json::from_str(&decrypted)
-                .map_err(|e| anyhow!("解密后 JSON 解析失败: {}", e))?
-        }
-    };
-
-    let user_id = match auth_info.get("userId").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return Ok(None),
-    };
-
-    let token = match auth_info.get("token").and_then(|v| v.as_str()) {
-        Some(t) => t.to_string(),
-        None => return Ok(None),
-    };
-
-    Ok(Some((user_id, token)))
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn read_trae_login_from_dir(_data_dir: &str) -> Result<Option<(String, String)>> {
-    Ok(None)
-}
-
 /// TRAE Work CN 加密数据格式 (AES-128-CBC + HMAC-SHA512):
 /// Header (38 bytes): "tc" (2) + version/5 (1) + 0x10/0x00/0x00 (3) + embedded_key (32)
 /// Body: AES-128-CBC encrypted (HMAC_SHA512(64) || plaintext + PKCS7 padding)
