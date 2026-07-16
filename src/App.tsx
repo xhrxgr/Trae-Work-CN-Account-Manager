@@ -201,7 +201,7 @@ function App() {
     setConfirmModal({
       isOpen: true,
       title: "切换账号",
-      message: `确定要切换到账号 "${account.email || account.name}" 吗？\n\n系统将自动关闭 TRAE Work CN 并切换登录信息。`,
+      message: `确定要切换到账号 "${account.email || account.name}" 吗？\n\n切换后该账号将绑定到「默认」实例。\n\n系统将自动关闭 TRAE Work CN 并切换登录信息。`,
       type: "warning",
       onConfirm: async () => {
         setConfirmModal(null);
@@ -403,7 +403,7 @@ function App() {
             <header className="page-header">
               <div className="header-left">
                 <h2 className="page-title">账号管理</h2>
-                <p>管理您的账号</p>
+                <p>管理您的账号 · 切换账号即绑定到默认实例</p>
               </div>
               <div className="header-right">
                 <span className="account-count">共 {accounts.length} 个账号</span>

@@ -83,7 +83,13 @@ async fn update_account_note(account_id: String, note: Option<String>, state: St
 #[tauri::command]
 async fn switch_account(account_id: String, state: State<'_, AppState>) -> Result<()> {
     let mut manager = state.account_manager.lock().await;
-    manager.switch_account(&account_id).map_err(Into::into)
+    manager.switch_account(&account_id)?;
+
+    // 切换账号后同步默认实例绑定
+    let mut inst_manager = state.instance_manager.lock().await;
+    inst_manager.sync_default_instance_binding(&manager);
+
+    Ok(())
 }
 
 /// 多开模式：为指定账号启动独立的 TRAE Work CN 实例
@@ -98,10 +104,14 @@ async fn launch_account_multi(account_id: String, state: State<'_, AppState>) ->
 /// 获取所有实例（快速返回基本信息 + is_running 批量检查 + disk_usage 异步后台计算）
 #[tauri::command]
 async fn list_instances(state: State<'_, AppState>) -> Result<Vec<InstanceBrief>> {
-    // 1. 快速获取基本信息 + is_running + 缓存的 disk_usage（持有锁时间短）
+    // 1. 快速获取基本信息 + 同步默认实例绑定 + is_running + 缓存的 disk_usage
     let (briefs, uncached_dirs) = {
         let account_manager = state.account_manager.lock().await;
         let mut instance_manager = state.instance_manager.lock().await;
+
+        // 同步默认实例绑定（每次刷新实例页时确保与实际登录一致）
+        instance_manager.sync_default_instance_binding(&account_manager);
+
         let briefs = instance_manager.list_instances_basic(&account_manager);
         let mut briefs = briefs;
         // compute_runtime_info 只做 is_running 批量检查 + 读缓存 disk_usage（不阻塞）

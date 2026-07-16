@@ -171,6 +171,51 @@ impl InstanceManager {
             .collect()
     }
 
+    /// 同步默认实例的账号绑定（检测 storage.json 的实际登录状态）
+    /// 每次 list_instances 和 switch_account 后调用，确保绑定与实际登录一致
+    pub fn sync_default_instance_binding(&mut self, account_manager: &crate::account::AccountManager) {
+        let default = match self.store.instances.iter_mut()
+            .find(|i| i.is_default)
+        {
+            Some(inst) => inst,
+            None => return,
+        };
+
+        match crate::machine::read_trae_login_from_dir(&default.data_dir) {
+            Ok(Some((user_id, _))) => {
+                if let Some(account) = account_manager.find_account_by_user_id(&user_id) {
+                    if default.bound_account_id.as_deref() != Some(&account.id) {
+                        default.bound_account_id = Some(account.id.clone());
+                        default.updated_at = chrono::Utc::now().timestamp();
+                        if let Err(e) = self.save_store() {
+                            eprintln!("[WARN] 保存默认实例绑定失败: {}", e);
+                        } else {
+                            println!("[INFO] 同步默认实例绑定: 账号 '{}'", account.name);
+                        }
+                    }
+                } else {
+                    if default.bound_account_id.is_some() {
+                        default.bound_account_id = None;
+                        default.updated_at = chrono::Utc::now().timestamp();
+                        let _ = self.save_store();
+                        println!("[INFO] 清除默认实例绑定（账号不在管理器中）");
+                    }
+                }
+            }
+            Ok(None) => {
+                if default.bound_account_id.is_some() {
+                    default.bound_account_id = None;
+                    default.updated_at = chrono::Utc::now().timestamp();
+                    let _ = self.save_store();
+                    println!("[INFO] 清除默认实例绑定（storage.json 无登录信息）");
+                }
+            }
+            Err(e) => {
+                eprintln!("[WARN] 读取默认实例登录信息失败: {}", e);
+            }
+        }
+    }
+
     /// 后台计算 disk_usage 并填充缓存（不阻塞，由 list_instances spawn 调用）
     pub fn compute_disk_usage_for_dirs(&mut self, data_dirs: &[String]) {
         let now = chrono::Utc::now().timestamp();

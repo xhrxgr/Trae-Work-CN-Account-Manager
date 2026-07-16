@@ -1,6 +1,6 @@
 [package]
 name = "trae-work-cn-account-manager"
-version = "1.0.12"
+version = "1.0.13"
 description = "TRAE Work CN 多账号管理工具 - 一键切换、机器码管理"
 authors = ["xhrxgr"]
 edition = "2021"
