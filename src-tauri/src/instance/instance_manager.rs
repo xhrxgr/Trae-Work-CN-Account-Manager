@@ -36,26 +36,6 @@ impl InstanceManager {
             inst.is_default || inst.bound_account_id.is_some()
         });
 
-        // 尝试自动绑定：对每个未绑定账号的实例，检测其 data-dir 是否已登录
-        let mut need_save = false;
-        for inst in store.instances.iter_mut() {
-            if inst.bound_account_id.is_some() {
-                continue;
-            }
-            if let Ok(Some((user_id, _))) = machine::read_trae_login_from_dir(&inst.data_dir) {
-                if let Some(account) = account_manager.find_account_by_user_id(&user_id) {
-                    inst.bound_account_id = Some(account.id.clone());
-                    inst.updated_at = chrono::Utc::now().timestamp();
-                    need_save = true;
-                    println!("[INFO] 自动绑定实例 '{}' -> 账号 '{}'", inst.name, account.name);
-                }
-            }
-        }
-        if need_save {
-            let content = serde_json::to_string_pretty(&store)?;
-            fs::write(&data_path, content)?;
-        }
-
         Ok(Self { store, data_path, disk_cache: HashMap::new() })
     }
 
@@ -169,51 +149,6 @@ impl InstanceManager {
             })
             .map(|b| b.data_dir.clone())
             .collect()
-    }
-
-    /// 同步默认实例的账号绑定（检测 storage.json 的实际登录状态）
-    /// 每次 list_instances 和 switch_account 后调用，确保绑定与实际登录一致
-    pub fn sync_default_instance_binding(&mut self, account_manager: &crate::account::AccountManager) {
-        let default = match self.store.instances.iter_mut()
-            .find(|i| i.is_default)
-        {
-            Some(inst) => inst,
-            None => return,
-        };
-
-        match crate::machine::read_trae_login_from_dir(&default.data_dir) {
-            Ok(Some((user_id, _))) => {
-                if let Some(account) = account_manager.find_account_by_user_id(&user_id) {
-                    if default.bound_account_id.as_deref() != Some(&account.id) {
-                        default.bound_account_id = Some(account.id.clone());
-                        default.updated_at = chrono::Utc::now().timestamp();
-                        if let Err(e) = self.save_store() {
-                            eprintln!("[WARN] 保存默认实例绑定失败: {}", e);
-                        } else {
-                            println!("[INFO] 同步默认实例绑定: 账号 '{}'", account.name);
-                        }
-                    }
-                } else {
-                    if default.bound_account_id.is_some() {
-                        default.bound_account_id = None;
-                        default.updated_at = chrono::Utc::now().timestamp();
-                        let _ = self.save_store();
-                        println!("[INFO] 清除默认实例绑定（账号不在管理器中）");
-                    }
-                }
-            }
-            Ok(None) => {
-                if default.bound_account_id.is_some() {
-                    default.bound_account_id = None;
-                    default.updated_at = chrono::Utc::now().timestamp();
-                    let _ = self.save_store();
-                    println!("[INFO] 清除默认实例绑定（storage.json 无登录信息）");
-                }
-            }
-            Err(e) => {
-                eprintln!("[WARN] 读取默认实例登录信息失败: {}", e);
-            }
-        }
     }
 
     /// 后台计算 disk_usage 并填充缓存（不阻塞，由 list_instances spawn 调用）
@@ -349,6 +284,20 @@ impl InstanceManager {
                 &login_info,
                 account.machine_id.as_deref(),
                 &data_dir,
+            )?;
+
+            // 绑定后自动启动 TRAE
+            #[cfg(target_os = "windows")]
+            let shared_ext = std::env::var("APPDATA")
+                .ok()
+                .map(|p| PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
+            #[cfg(not(target_os = "windows"))]
+            let shared_ext = None;
+
+            machine::open_product_with_data_dir(
+                machine::ProductType::TraeSoloCn,
+                &data_dir,
+                shared_ext.as_deref(),
             )?;
         }
 
