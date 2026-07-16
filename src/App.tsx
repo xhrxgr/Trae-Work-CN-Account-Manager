@@ -93,6 +93,15 @@ function App() {
   // 初始加载
   useEffect(() => {
     loadAccounts();
+
+    // 检测系统深色模式并切换 html.dark class
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateTheme = (e: MediaQueryListEvent | MediaQueryList) => {
+      document.documentElement.classList.toggle('dark', e.matches);
+    };
+    updateTheme(mq);
+    mq.addEventListener('change', updateTheme);
+    return () => mq.removeEventListener('change', updateTheme);
   }, [loadAccounts]);
 
   // 自动刷新即将过期的 Token
