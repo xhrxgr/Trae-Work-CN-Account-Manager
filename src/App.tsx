@@ -403,11 +403,11 @@ function App() {
           </div>
         )}
 
-        {currentPage === "instances" && (
+        <div className={`page-content ${currentPage === "instances" ? "active" : "hidden"}`}>
           <Instances accounts={accounts} onRefreshAccounts={loadAccounts} />
-        )}
+        </div>
 
-        {currentPage === "accounts" && (
+        <div className={`page-content ${currentPage === "accounts" ? "active" : "hidden"}`}>
           <>
             <header className="page-header">
               <div className="header-left">
@@ -552,9 +552,9 @@ function App() {
               )}
             </main>
           </>
-        )}
+        </div>
 
-        {currentPage === "settings" && (
+        <div className={`page-content ${currentPage === "settings" ? "active" : "hidden"}`}>
           <>
             <header className="page-header">
               <div className="header-left">
@@ -564,9 +564,9 @@ function App() {
             </header>
             <Settings onToast={addToast} onAccountsChanged={loadAccounts} />
           </>
-        )}
+        </div>
 
-        {currentPage === "about" && (
+        <div className={`page-content ${currentPage === "about" ? "active" : "hidden"}`}>
           <>
             <header className="page-header">
               <div className="header-left">
@@ -576,7 +576,7 @@ function App() {
             </header>
             <About />
           </>
-        )}
+        </div>
       </div>
 
       {/* Toast 通知 */}
