@@ -95,26 +95,33 @@ async fn launch_account_multi(account_id: String, state: State<'_, AppState>) ->
 
 // ============ 实例管理命令 ============
 
-/// 获取所有实例（快速返回基本信息 + 异步计算运行时信息）
+/// 获取所有实例（快速返回基本信息 + is_running 批量检查 + disk_usage 异步后台计算）
 #[tauri::command]
 async fn list_instances(state: State<'_, AppState>) -> Result<Vec<InstanceBrief>> {
-    // 1. 快速获取基本信息（持有锁时间极短）
-    let mut briefs = {
+    // 1. 快速获取基本信息 + is_running + 缓存的 disk_usage（持有锁时间短）
+    let (briefs, uncached_dirs) = {
         let account_manager = state.account_manager.lock().await;
-        let instance_manager = state.instance_manager.lock().await;
-        instance_manager.list_instances_basic(&account_manager)
+        let mut instance_manager = state.instance_manager.lock().await;
+        let briefs = instance_manager.list_instances_basic(&account_manager);
+        let mut briefs = briefs;
+        // compute_runtime_info 只做 is_running 批量检查 + 读缓存 disk_usage（不阻塞）
+        instance_manager.compute_runtime_info(&mut briefs);
+        let uncached = instance_manager.get_uncached_data_dirs(&briefs);
+        (briefs, uncached)
     };
 
-    // 2. 在 blocking 线程中计算运行时信息（disk_usage 带缓存 + 批量进程检查）
-    //    避免阻塞 Tauri 的 async 运行时
-    let instance_manager = state.instance_manager.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut manager = instance_manager.blocking_lock();
-        manager.compute_runtime_info(&mut briefs);
-        briefs
-    })
-    .await
-    .map_err(|e| ApiError { message: format!("计算实例运行时信息失败: {}", e) })
+    // 2. 对缓存未命中的实例，spawn 后台任务计算 disk_usage（不阻塞当前请求）
+    //    下次轮询时缓存已填好，用户看到磁盘占用
+    if !uncached_dirs.is_empty() {
+        let instance_manager = state.instance_manager.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut manager = instance_manager.blocking_lock();
+            manager.compute_disk_usage_for_dirs(&uncached_dirs);
+        });
+        // 故意不 await，让它在后台运行
+    }
+
+    Ok(briefs)
 }
 
 /// 创建实例

@@ -4,6 +4,20 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Windows 下隐藏子进程的控制台窗口（避免 tasklist/taskkill/powershell 弹黑窗）
+#[cfg(target_os = "windows")]
+pub fn hide_window(mut cmd: Command) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn hide_window(cmd: Command) -> Command {
+    cmd
+}
+
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
@@ -115,7 +129,7 @@ pub fn get_product_data_path(_product_type: ProductType) -> Result<PathBuf> {
 pub fn is_product_running(product_type: ProductType) -> bool {
     // 检查所有候选进程名（新版本 trae-auto.exe + 旧版本 TRAE SOLO CN.exe）
     for process_name in product_type.process_names() {
-        let output = Command::new("tasklist")
+        let output = hide_window(Command::new("tasklist"))
             .args(["/FI", &format!("IMAGENAME eq {}", process_name), "/NH"])
             .output();
 
@@ -160,7 +174,7 @@ pub fn kill_product(product_type: ProductType) -> Result<()> {
     // 遍历所有候选进程名（新版本 trae-auto.exe + 旧版本 TRAE SOLO CN.exe）
     for process_name in product_type.process_names() {
         // 先尝试优雅关闭
-        let _ = Command::new("taskkill")
+        let _ = hide_window(Command::new("taskkill"))
             .args(["/IM", process_name])
             .output();
     }
@@ -178,7 +192,7 @@ pub fn kill_product(product_type: ProductType) -> Result<()> {
     // 如果还在运行，强制关闭所有候选进程
     if is_product_running(product_type) {
         for process_name in product_type.process_names() {
-            let output = Command::new("taskkill")
+            let output = hide_window(Command::new("taskkill"))
                 .args(["/F", "/IM", process_name])
                 .output()
                 .map_err(|e| anyhow!("关闭 {} 失败: {}", display_name, e))?;
@@ -1135,7 +1149,7 @@ pub fn is_instance_running(data_dir: &str) -> (bool, Option<u32>) {
     #[cfg(target_os = "windows")]
     {
         // 检查进程是否存活
-        let output = std::process::Command::new("tasklist")
+        let output = hide_window(std::process::Command::new("tasklist"))
             .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
             .output();
         if let Ok(out) = output {
@@ -1164,9 +1178,10 @@ pub fn check_pids_alive_batch(pids: &[u32]) -> std::collections::HashMap<u32, bo
         return result;
     }
 
-    // 一次 tasklist 列出所有 TRAE SOLO CN.exe 进程
-    let output = std::process::Command::new("tasklist")
-        .args(["/NH", "/FO", "CSV"])
+    // tasklist 加 IMAGENAME 过滤，只返回 TRAE SOLO CN.exe 进程（比查所有进程快 10-100 倍）
+    // hide_window 避免弹出黑色控制台窗口
+    let output = hide_window(std::process::Command::new("tasklist"))
+        .args(["/NH", "/FO", "CSV", "/FI", "IMAGENAME eq TRAE SOLO CN.exe"])
         .output();
     if let Ok(out) = output {
         let text = String::from_utf8_lossy(&out.stdout);
@@ -1176,14 +1191,10 @@ pub fn check_pids_alive_batch(pids: &[u32]) -> std::collections::HashMap<u32, bo
             let parts: Vec<&str> = line.split(',').collect();
             if parts.len() >= 2 {
                 // 去除引号和空白
-                let name = parts[0].trim_matches('"').trim();
                 let pid_str = parts[1].trim_matches('"').trim();
-                // 只关心 TRAE SOLO CN.exe（排除本应用和其他程序）
-                if name.eq_ignore_ascii_case("TRAE SOLO CN.exe") {
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        if pids.contains(&pid) {
-                            result.insert(pid, true);
-                        }
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if pids.contains(&pid) {
+                        result.insert(pid, true);
                     }
                 }
             }
