@@ -119,14 +119,15 @@ impl InstanceManager {
         }).collect()
     }
 
-    /// 计算实例的运行时信息（disk_usage 带缓存 + is_running 批量检查）
+    /// 计算实例的运行时信息（is_running 批量检查 + disk_usage 从缓存读）
+    /// disk_usage 缓存未命中时返回 0，由后台任务异步计算填充
     /// 应在 spawn_blocking 中调用，避免阻塞 async 运行时
     pub fn compute_runtime_info(&mut self, briefs: &mut [InstanceBrief]) {
         if briefs.is_empty() {
             return;
         }
 
-        // 1. 批量检查所有实例的运行状态（一次 tasklist）
+        // 1. 批量检查所有实例的运行状态（一次 tasklist 加 IMAGENAME 过滤，很快）
         let data_dirs: Vec<String> = briefs.iter().map(|b| b.data_dir.clone()).collect();
         let running_info = machine::check_instances_running_batch(&data_dirs);
         for brief in briefs.iter_mut() {
@@ -136,20 +137,37 @@ impl InstanceManager {
             }
         }
 
-        // 2. 计算磁盘占用（带缓存，5 分钟内复用，避免每次轮询都递归遍历）
-        let now = chrono::Utc::now().timestamp();
+        // 2. disk_usage 只从缓存读（未命中返回 0，由后台任务异步填充）
+        // 这样首次加载不阻塞，下次轮询时缓存已填好
         for brief in briefs.iter_mut() {
-            // 检查缓存是否有效
-            if let Some((cached_at, cached_size)) = self.disk_cache.get(&brief.data_dir) {
-                if now - cached_at < DISK_CACHE_TTL_SECS {
-                    brief.disk_usage = *cached_size;
-                    continue;
-                }
+            if let Some((_, cached_size)) = self.disk_cache.get(&brief.data_dir) {
+                brief.disk_usage = *cached_size;
             }
-            // 缓存失效或不存在，重新计算
-            let size = machine::get_dir_size(&brief.data_dir);
-            self.disk_cache.insert(brief.data_dir.clone(), (now, size));
-            brief.disk_usage = size;
+            // 缓存未命中，disk_usage 保持 0
+        }
+    }
+
+    /// 获取缓存未命中或已过期的实例 data_dir 列表（用于后台异步计算）
+    pub fn get_uncached_data_dirs(&self, briefs: &[InstanceBrief]) -> Vec<String> {
+        let now = chrono::Utc::now().timestamp();
+        briefs.iter()
+            .filter(|b| {
+                match self.disk_cache.get(&b.data_dir) {
+                    Some((cached_at, _)) => now - cached_at >= DISK_CACHE_TTL_SECS,
+                    None => true,
+                }
+            })
+            .map(|b| b.data_dir.clone())
+            .collect()
+    }
+
+    /// 后台计算 disk_usage 并填充缓存（不阻塞，由 list_instances spawn 调用）
+    pub fn compute_disk_usage_for_dirs(&mut self, data_dirs: &[String]) {
+        let now = chrono::Utc::now().timestamp();
+        for dir in data_dirs {
+            let size = machine::get_dir_size(dir);
+            self.disk_cache.insert(dir.clone(), (now, size));
+            println!("[INFO] 磁盘占用计算完成: {} = {} bytes", dir, size);
         }
     }
 
@@ -377,8 +395,8 @@ impl InstanceManager {
                     .unwrap_or_default().replace('\'', "''")
             );
 
-            std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &ps_script])
+            machine::hide_window(std::process::Command::new("powershell"))
+                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_script])
                 .output()?;
 
             println!("[INFO] 已创建快捷方式: {}", shortcut_path.display());
