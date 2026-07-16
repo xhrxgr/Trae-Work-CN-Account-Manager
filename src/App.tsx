@@ -14,6 +14,7 @@ import { About } from "./pages/About";
 import { useToast } from "./hooks/useToast";
 import * as api from "./api";
 import type { AccountBrief } from "./types";
+import { Instances } from "./pages/Instances";
 import "./App.css";
 
 type ViewMode = "grid" | "list";
@@ -24,7 +25,7 @@ function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState("accounts");
+  const [currentPage, setCurrentPage] = useState("instances");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   // 使用自定义 Toast hook
@@ -391,6 +392,10 @@ function App() {
             {error}
             <button onClick={() => setError(null)}>×</button>
           </div>
+        )}
+
+        {currentPage === "instances" && (
+          <Instances accounts={accounts} onRefreshAccounts={loadAccounts} />
         )}
 
         {currentPage === "accounts" && (

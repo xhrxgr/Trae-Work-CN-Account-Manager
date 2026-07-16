@@ -382,6 +382,21 @@ impl AccountManager {
             .ok_or_else(|| anyhow!("账号不存在"))
     }
 
+    /// 获取所有账号（完整数据，供 InstanceManager 使用）
+    pub fn get_all_accounts(&self) -> &[Account] {
+        &self.store.accounts
+    }
+
+    /// 获取账号引用
+    pub fn get_account_ref(&self, account_id: &str) -> Option<&Account> {
+        self.store.accounts.iter().find(|a| a.id == account_id)
+    }
+
+    /// 获取当前登录账号 ID
+    pub fn get_current_account_id(&self) -> Option<String> {
+        self.store.current_account_id.clone()
+    }
+
     /// 更新账号备注
     pub fn update_account_note(&mut self, account_id: &str, note: Option<String>) -> Result<()> {
         let account = self.store

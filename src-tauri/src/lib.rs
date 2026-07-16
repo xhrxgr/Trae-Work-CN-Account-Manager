@@ -1,5 +1,6 @@
 mod api;
 mod account;
+mod instance;
 mod machine;
 mod login;
 
@@ -9,10 +10,12 @@ use tauri::State;
 
 use account::{AccountBrief, AccountManager, Account, BrowserUserInfo};
 use api::UsageSummary;
+use instance::{InstanceBrief, InstanceManager, TraeInstance};
 
 /// 应用状态
 pub struct AppState {
     pub account_manager: Arc<Mutex<AccountManager>>,
+    pub instance_manager: Arc<Mutex<InstanceManager>>,
 }
 
 /// 错误类型
@@ -88,6 +91,83 @@ async fn switch_account(account_id: String, state: State<'_, AppState>) -> Resul
 async fn launch_account_multi(account_id: String, state: State<'_, AppState>) -> Result<()> {
     let mut manager = state.account_manager.lock().await;
     manager.launch_account_multi(&account_id).map_err(Into::into)
+}
+
+// ============ 实例管理命令 ============
+
+/// 获取所有实例
+#[tauri::command]
+async fn list_instances(state: State<'_, AppState>) -> Result<Vec<InstanceBrief>> {
+    let account_manager = state.account_manager.lock().await;
+    let instance_manager = state.instance_manager.lock().await;
+    Ok(instance_manager.list_instances(&account_manager))
+}
+
+/// 创建实例
+#[tauri::command]
+async fn create_instance(
+    name: String,
+    data_dir: Option<String>,
+    account_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<TraeInstance> {
+    let mut manager = state.instance_manager.lock().await;
+    manager.create_instance(name, data_dir, account_id).map_err(Into::into)
+}
+
+/// 删除实例
+#[tauri::command]
+async fn delete_instance(
+    instance_id: String,
+    delete_data: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let mut manager = state.instance_manager.lock().await;
+    manager.delete_instance(&instance_id, delete_data).map_err(Into::into)
+}
+
+/// 重命名实例
+#[tauri::command]
+async fn rename_instance(
+    instance_id: String,
+    new_name: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let mut manager = state.instance_manager.lock().await;
+    manager.rename_instance(&instance_id, &new_name).map_err(Into::into)
+}
+
+/// 绑定账号到实例（写入登录信息）
+#[tauri::command]
+async fn bind_account_to_instance(
+    instance_id: String,
+    account_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let account_manager = state.account_manager.lock().await;
+    let mut manager = state.instance_manager.lock().await;
+    manager.bind_account(&instance_id, account_id.as_deref(), &account_manager).map_err(Into::into)
+}
+
+/// 启动实例
+#[tauri::command]
+async fn launch_instance(instance_id: String, state: State<'_, AppState>) -> Result<bool> {
+    let manager = state.instance_manager.lock().await;
+    manager.launch_instance(&instance_id).map_err(Into::into)
+}
+
+/// 打开实例数据目录
+#[tauri::command]
+async fn open_instance_data_dir(instance_id: String, state: State<'_, AppState>) -> Result<()> {
+    let manager = state.instance_manager.lock().await;
+    manager.open_instance_data_dir(&instance_id).map_err(Into::into)
+}
+
+/// 创建实例桌面快捷方式
+#[tauri::command]
+async fn create_instance_shortcut(instance_id: String, state: State<'_, AppState>) -> Result<String> {
+    let manager = state.instance_manager.lock().await;
+    manager.create_instance_shortcut(&instance_id).map_err(Into::into)
 }
 
 /// 导出所有账号为 JSON 字符串
@@ -234,12 +314,14 @@ async fn start_browser_login(app: tauri::AppHandle, state: State<'_, AppState>) 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let account_manager = AccountManager::new().expect("无法初始化账号管理器");
+    let instance_manager = InstanceManager::new(&account_manager).expect("无法初始化实例管理器");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             account_manager: Arc::new(Mutex::new(account_manager)),
+            instance_manager: Arc::new(Mutex::new(instance_manager)),
         })
         .invoke_handler(tauri::generate_handler![
             add_account_by_token,
@@ -249,6 +331,15 @@ pub fn run() {
             update_account_note,
             switch_account,
             launch_account_multi,
+            // 实例管理
+            list_instances,
+            create_instance,
+            delete_instance,
+            rename_instance,
+            bind_account_to_instance,
+            launch_instance,
+            open_instance_data_dir,
+            create_instance_shortcut,
             export_accounts,
             export_accounts_to_file,
             import_accounts,

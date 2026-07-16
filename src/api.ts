@@ -1,5 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Account, AccountBrief } from "./types";
+import type { Account, AccountBrief, InstanceBrief } from "./types";
+
+// TraeInstance 类型（与后端 TraeInstance 对应）
+export interface TraeInstance {
+  id: string;
+  name: string;
+  data_dir: string;
+  is_default: boolean;
+  bound_account_id: string | null;
+  machine_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
 
 // 添加账号（通过 Cookies）
 export async function addAccount(cookies: string): Promise<Account> {
@@ -44,6 +56,55 @@ export async function switchAccount(accountId: string): Promise<void> {
 // 多开模式：启动独立的 TRAE Work CN 实例
 export async function launchAccountMulti(accountId: string): Promise<void> {
   return invoke("launch_account_multi", { accountId });
+}
+
+// ============ 实例管理 ============
+
+// 获取所有实例
+export async function listInstances(): Promise<InstanceBrief[]> {
+  return invoke("list_instances");
+}
+
+// 创建实例
+export async function createInstance(
+  name: string,
+  dataDir?: string,
+  accountId?: string
+): Promise<TraeInstance> {
+  return invoke("create_instance", { name, dataDir, accountId });
+}
+
+// 删除实例
+export async function deleteInstance(instanceId: string, deleteData: boolean): Promise<void> {
+  return invoke("delete_instance", { instanceId, deleteData });
+}
+
+// 重命名实例
+export async function renameInstance(instanceId: string, newName: string): Promise<void> {
+  return invoke("rename_instance", { instanceId, newName });
+}
+
+// 绑定账号到实例
+export async function bindAccountToInstance(
+  instanceId: string,
+  accountId?: string
+): Promise<void> {
+  return invoke("bind_account_to_instance", { instanceId, accountId });
+}
+
+// 启动实例
+export async function launchInstance(instanceId: string): Promise<boolean> {
+  return invoke("launch_instance", { instanceId });
+}
+
+// 打开实例数据目录
+export async function openInstanceDataDir(instanceId: string): Promise<void> {
+  return invoke("open_instance_data_dir", { instanceId });
+}
+
+// 创建实例桌面快捷方式
+export async function createInstanceShortcut(instanceId: string): Promise<string> {
+  return invoke("create_instance_shortcut", { instanceId });
 }
 
 // 更新账号 Token

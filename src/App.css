@@ -4433,3 +4433,169 @@ body {
   color: var(--text-primary);
   font-weight: 600;
 }
+
+/* ============ 实例管理页 ============ */
+.instances-page {
+  padding: 24px;
+}
+
+.instance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.instance-card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.instance-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+}
+
+.instance-card.default {
+  border-color: var(--primary);
+  border-width: 2px;
+}
+
+.instance-card.running {
+  border-left: 3px solid #22c55e;
+}
+
+.instance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.instance-name {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.default-badge {
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.instance-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.instance-status.running {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.instance-status.stopped {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.instance-body {
+  flex: 1;
+}
+
+.instance-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.instance-account .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.instance-disk {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.instance-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-launch {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn-launch:hover {
+  opacity: 0.9;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.account-select-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.account-select-item:hover {
+  background: var(--bg-secondary);
+}
+
+.account-select-item .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.form-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 12px 0;
+}

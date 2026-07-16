@@ -37,6 +37,23 @@ export interface Account {
   data_dir: string | null;
 }
 
+// 实例简要信息
+export interface InstanceBrief {
+  id: string;
+  name: string;
+  data_dir: string;
+  is_default: boolean;
+  bound_account_id: string | null;
+  bound_account_email: string | null;
+  bound_account_name: string | null;
+  bound_account_avatar: string | null;
+  machine_id: string | null;
+  created_at: number;
+  disk_usage: number;
+  is_running: boolean;
+  pid: number | null;
+}
+
 // API 错误
 export interface ApiError {
   message: string;

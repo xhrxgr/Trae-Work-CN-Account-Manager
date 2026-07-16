@@ -89,14 +89,14 @@ pub fn reset_machine_guid() -> Result<String> {
 
 /// 获取产品数据目录路径
 #[cfg(target_os = "windows")]
-fn get_product_data_path(product_type: ProductType) -> Result<PathBuf> {
+pub fn get_product_data_path(product_type: ProductType) -> Result<PathBuf> {
     let appdata = std::env::var("APPDATA")
         .map_err(|_| anyhow!("无法获取 APPDATA 环境变量"))?;
     Ok(PathBuf::from(appdata).join(product_type.data_dir_name()))
 }
 
 #[cfg(target_os = "macos")]
-fn get_product_data_path(product_type: ProductType) -> Result<PathBuf> {
+pub fn get_product_data_path(product_type: ProductType) -> Result<PathBuf> {
     let home = std::env::var("HOME")
         .map_err(|_| anyhow!("无法获取 HOME 环境变量"))?;
     Ok(PathBuf::from(home)
@@ -106,7 +106,7 @@ fn get_product_data_path(product_type: ProductType) -> Result<PathBuf> {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn get_product_data_path(_product_type: ProductType) -> Result<PathBuf> {
+pub fn get_product_data_path(_product_type: ProductType) -> Result<PathBuf> {
     Err(anyhow!("此功能仅支持 Windows 和 macOS 系统"))
 }
 
@@ -1091,6 +1091,67 @@ pub fn set_solo_cn_machine_id(new_id: &str) -> Result<()> {
 /// 将账号登录信息写入 Trae Solo CN
 pub fn write_solo_cn_login_info(info: &TraeLoginInfo) -> Result<()> {
     write_product_login_info(info, ProductType::TraeSoloCn)
+}
+
+/// 计算目录大小（递归，字节）
+pub fn get_dir_size(path: &str) -> u64 {
+    let p = std::path::Path::new(path);
+    if !p.exists() {
+        return 0;
+    }
+    fn dir_size(path: &std::path::Path) -> u64 {
+        let mut size = 0u64;
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    size += dir_size(&entry_path);
+                } else {
+                    size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+            }
+        }
+        size
+    }
+    dir_size(p)
+}
+
+/// 检查实例是否正在运行（读 code.lock 拿 PID，检查进程存活）
+/// 返回 (is_running, pid)
+pub fn is_instance_running(data_dir: &str) -> (bool, Option<u32>) {
+    let lock_path = std::path::Path::new(data_dir).join("code.lock");
+    if !lock_path.exists() {
+        return (false, None);
+    }
+    let pid_str = match std::fs::read_to_string(&lock_path) {
+        Ok(s) => s.trim().to_string(),
+        Err(_) => return (false, None),
+    };
+    let pid: u32 = match pid_str.parse() {
+        Ok(p) => p,
+        Err(_) => return (false, None),
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        // 检查进程是否存活
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            // tasklist 输出包含 PID 则进程存活
+            let running = text.contains(&pid.to_string()) && !text.contains("信息: 没有运行");
+            return (running, Some(pid));
+        }
+        (false, Some(pid))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Unix: kill -0 检测
+        let running = unsafe { libc::kill(pid as i32, 0) == 0 };
+        (running, Some(pid))
+    }
 }
 
 /// 切换 Trae Solo CN 到指定账号

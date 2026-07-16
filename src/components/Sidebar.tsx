@@ -1,4 +1,4 @@
-import { Users, Settings, Info } from "lucide-react";
+import { Boxes, Users, Settings, Info } from "lucide-react";
 import logoImage from "../assets/logo.png";
 
 interface SidebarProps {
@@ -7,6 +7,7 @@ interface SidebarProps {
 }
 
 const menuItems = [
+  { id: "instances", label: "实例管理", icon: Boxes },
   { id: "accounts", label: "账号管理", icon: Users },
   { id: "settings", label: "设置", icon: Settings },
   { id: "about", label: "关于", icon: Info },
@@ -41,7 +42,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
       </nav>
 
       <div className="sidebar-footer">
-        <span className="version">v1.0.7</span>
+        <span className="version">v1.0.8</span>
       </div>
     </aside>
   );
