@@ -1074,6 +1074,139 @@ pub fn launch_product_multi(
     Ok(())
 }
 
+/// 向指定 data-dir 写入登录信息（不启动，仅准备数据目录）
+/// 用于绑定账号操作：设置 machineid + 写入 storage.json（登录信息 + telemetry ID）
+pub fn write_login_info_to_dir(
+    info: &TraeLoginInfo,
+    machine_id: Option<&str>,
+    data_dir: &str,
+) -> Result<()> {
+    let product_type = ProductType::TraeSoloCn;
+    let display_name = product_type.display_name();
+    let data_path = PathBuf::from(data_dir);
+
+    fs::create_dir_all(&data_path)
+        .map_err(|e| anyhow!("创建数据目录失败: {}", e))?;
+
+    let new_machine_id = match machine_id {
+        Some(mid) => mid.to_string(),
+        None => generate_machine_guid(),
+    };
+    let machine_id_path = data_path.join("machineid");
+    fs::write(&machine_id_path, &new_machine_id)
+        .map_err(|e| anyhow!("写入机器码失败: {}", e))?;
+
+    let storage_dir = data_path.join("User").join("globalStorage");
+    fs::create_dir_all(&storage_dir)
+        .map_err(|e| anyhow!("创建目录失败: {}", e))?;
+    let storage_path = storage_dir.join("storage.json");
+
+    let mut json: serde_json::Value = if storage_path.exists() {
+        let content = fs::read_to_string(&storage_path)
+            .map_err(|e| anyhow!("读取 storage.json 失败: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let obj = json.as_object_mut()
+        .ok_or_else(|| anyhow!("storage.json 格式错误"))?;
+
+    obj.remove("iCubeAuthInfo://icube.cloudide");
+    obj.remove("iCubeEntitlementInfo://icube.cloudide");
+    obj.remove("iCubeServerData://icube.cloudide");
+    obj.remove("iCubeAuthInfo://usertag");
+
+    let new_telemetry_id = format!("{:x}", md5_hash(&new_machine_id));
+    obj.insert("telemetry.machineId".to_string(), serde_json::Value::String(new_telemetry_id));
+    obj.insert("telemetry.sqmId".to_string(), serde_json::Value::String(format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase())));
+    obj.insert("telemetry.devDeviceId".to_string(), serde_json::Value::String(Uuid::new_v4().to_string()));
+
+    let now = chrono::Utc::now();
+    let expired_at = now + chrono::Duration::days(14);
+    let refresh_expired_at = now + chrono::Duration::days(180);
+
+    let host = if info.host.is_empty() {
+        match info.region.to_uppercase().as_str() {
+            "SG" => "https://api-sg-central.trae.ai",
+            "CN" => "https://api.trae.cn",
+            _ => "https://api-sg-central.trae.ai",
+        }
+    } else {
+        &info.host
+    };
+
+    let auth_info = serde_json::json!({
+        "token": info.token,
+        "refreshToken": info.refresh_token.clone().unwrap_or_default(),
+        "expiredAt": expired_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "refreshExpiredAt": refresh_expired_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "tokenReleaseAt": now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        "userId": info.user_id,
+        "host": host,
+        "userRegion": {
+            "region": info.region.to_uppercase(),
+            "_aiRegion": info.region.to_uppercase()
+        },
+        "account": {
+            "username": info.username,
+            "iss": "",
+            "iat": 0,
+            "organization": "",
+            "work_country": "",
+            "email": info.email,
+            "avatar_url": info.avatar_url,
+            "description": "",
+            "scope": "marscode",
+            "loginScope": "trae",
+            "storeCountryCode": "cn",
+            "storeCountrySrc": "uid",
+            "storeRegion": info.region.to_uppercase(),
+            "userTag": "row"
+        }
+    });
+
+    let entitlement_info = serde_json::json!({
+        "identityStr": "Free",
+        "identity": 0,
+        "isPayFreshman": false,
+        "isSupportCommercialization": true,
+        "hasPackage": false,
+        "enableEntitlement": true,
+        "detail": {
+            "can_gen_solo_code": false,
+            "fast_request_per": 1,
+            "in_wait": false,
+            "permission": 1,
+            "toast_read": false,
+            "toastRead": false,
+            "canGenSoloCode": false,
+            "fastRequestPer": 1,
+            "inWaitlist": false
+        }
+    });
+
+    let auth_info_plain = serde_json::to_string(&auth_info)
+        .map_err(|e| anyhow!("序列化 auth_info 失败: {}", e))?;
+    let auth_info_encrypted = encrypt_solo_cn_auth_info(&auth_info_plain)?;
+    obj.insert(
+        "iCubeAuthInfo://icube.cloudide".to_string(),
+        serde_json::Value::String(auth_info_encrypted)
+    );
+    obj.insert(
+        "iCubeEntitlementInfo://icube.cloudide".to_string(),
+        serde_json::Value::String(serde_json::to_string(&entitlement_info).unwrap())
+    );
+
+    let new_content = serde_json::to_string_pretty(&json)
+        .map_err(|e| anyhow!("序列化 JSON 失败: {}", e))?;
+    fs::write(&storage_path, new_content)
+        .map_err(|e| anyhow!("写入 storage.json 失败: {}", e))?;
+
+    println!("[INFO] 已写入登录信息到 {}: {}", display_name, info.email);
+    Ok(())
+}
+
 // ========== Trae Solo CN 专属函数 ==========
 
 /// 读取 Trae Solo CN 的机器码

@@ -345,19 +345,10 @@ impl InstanceManager {
                 region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
             };
 
-            // 共享插件目录
-            #[cfg(target_os = "windows")]
-            let shared_ext = std::env::var("APPDATA")
-                .ok()
-                .map(|p| PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
-            #[cfg(not(target_os = "windows"))]
-            let shared_ext = None;
-
-            machine::launch_product_multi(
+            machine::write_login_info_to_dir(
                 &login_info,
                 account.machine_id.as_deref(),
                 &data_dir,
-                shared_ext.as_deref(),
             )?;
         }
 
