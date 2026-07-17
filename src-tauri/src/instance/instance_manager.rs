@@ -299,6 +299,7 @@ impl InstanceManager {
                 machine::ProductType::TraeSoloCn,
                 &data_dir,
                 shared_ext.as_deref(),
+                Some(&inst_name),
             )?;
         }
 
@@ -327,6 +328,7 @@ impl InstanceManager {
             machine::ProductType::TraeSoloCn,
             &inst.data_dir,
             shared_ext.as_deref(),
+            Some(&inst.name),
         )?;
 
         Ok(is_running) // 返回启动前是否已在运行
@@ -373,7 +375,7 @@ impl InstanceManager {
             let shortcut_path = PathBuf::from(&desktop).join(&shortcut_name);
 
             // 用 PowerShell 创建快捷方式
-            let arg_str = format!("--user-data-dir=\"{}\"", inst.data_dir);
+            let arg_str = format!("--user-data-dir=\"{}\" --title=\"{}\"", inst.data_dir, inst.name);
             let ps_script = format!(
                 "$ws = New-Object -ComObject WScript.Shell; \
                  $s = $ws.CreateShortcut('{}'); \

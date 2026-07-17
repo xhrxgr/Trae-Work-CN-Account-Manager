@@ -570,6 +570,7 @@ pub fn open_product_with_data_dir(
     product_type: ProductType,
     data_dir: &str,
     extensions_dir: Option<&str>,
+    window_title: Option<&str>,
 ) -> Result<()> {
     let exe_path = match get_saved_product_path(product_type) {
         Ok(path) => PathBuf::from(path),
@@ -601,6 +602,9 @@ pub fn open_product_with_data_dir(
         fs::create_dir_all(ext_dir).ok();
         cmd.arg("--extensions-dir").arg(ext_dir);
     }
+    if let Some(title) = window_title {
+        cmd.arg("--title").arg(title);
+    }
 
     cmd.spawn()
         .map_err(|e| anyhow!("多开启动 {} 失败: {}", product_type.display_name(), e))?;
@@ -614,6 +618,7 @@ pub fn open_product_with_data_dir(
     _product_type: ProductType,
     _data_dir: &str,
     _extensions_dir: Option<&str>,
+    _window_title: Option<&str>,
 ) -> Result<()> {
     Err(anyhow!("此功能仅支持 Windows 系统"))
 }
@@ -1068,7 +1073,7 @@ pub fn launch_product_multi(
     println!("[INFO] 已写入 {} 多开登录信息: {}", display_name, info.email);
 
     // 4. 启动多开实例
-    open_product_with_data_dir(product_type, data_dir, extensions_dir)?;
+    open_product_with_data_dir(product_type, data_dir, extensions_dir, Some(&info.username))?;
 
     println!("[INFO] {} 多开已启动: {}", display_name, info.email);
     Ok(())
