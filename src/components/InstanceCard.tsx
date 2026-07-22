@@ -62,7 +62,7 @@ function AccountStatusBadge({
 }) {
   const isFree = status.identity_str === "Free" || status.identity_str === "";
 
-  // 逆向 TRAE 源码发现（v1.0.21+）：
+  // 字段含义说明（v1.0.21+）：
   // - "速通" = Express/Fast Pass，是对话的优先队列，有次数限制
   // - fast_request_per = 剩余速通次数（不是"月免费对话次数"）
   // - 免费版 fast_request_per=0 = 无速通额度（但用户仍可普通对话，由服务端控制）
