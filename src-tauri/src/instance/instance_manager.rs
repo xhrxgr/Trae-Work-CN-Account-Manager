@@ -429,8 +429,19 @@ impl InstanceManager {
         }
 
         if delete_data {
-            let _ = fs::remove_dir_all(&inst.data_dir);
-            println!("[INFO] 已删除实例数据目录: {}", inst.data_dir);
+            match fs::remove_dir_all(&inst.data_dir) {
+                Ok(_) => println!("[INFO] 已删除实例数据目录: {}", inst.data_dir),
+                Err(e) => {
+                    // 目录可能被占用（实例运行中）或部分文件被锁
+                    let kind = e.kind();
+                    let msg = if kind == std::io::ErrorKind::PermissionDenied || kind == std::io::ErrorKind::Other {
+                        format!("删除数据目录失败（可能实例正在运行中，请先关闭实例再删除）。路径: {}\n错误: {}", inst.data_dir, e)
+                    } else {
+                        format!("删除数据目录失败。路径: {}\n错误: {}", inst.data_dir, e)
+                    };
+                    return Err(anyhow!(msg));
+                }
+            }
         }
 
         // 失效磁盘缓存
