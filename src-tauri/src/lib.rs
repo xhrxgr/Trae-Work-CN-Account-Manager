@@ -39,17 +39,19 @@ type Result<T> = std::result::Result<T, ApiError>;
 
 /// 添加账号（通过 Token，可选 Cookies）
 /// source: "browser"(浏览器登录), "local"(本地读取), "manual"(手动输入)
+/// refresh_token: 可选的 refresh token（v1.0.22+ 关键修复：避免几小时后 access token 失效无法续期）
 #[tauri::command]
 async fn add_account_by_token(
     token: String,
     cookies: Option<String>,
     source: Option<String>,
     browser_user_info: Option<BrowserUserInfo>,
+    refresh_token: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Account> {
     let mut manager = state.account_manager.lock().await;
     let src = source.unwrap_or_else(|| "manual".to_string());
-    manager.add_account_by_token(token, cookies, src, browser_user_info).await.map_err(Into::into)
+    manager.add_account_by_token(token, cookies, src, browser_user_info, refresh_token).await.map_err(Into::into)
 }
 
 /// 删除账号

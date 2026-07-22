@@ -1712,6 +1712,13 @@ pub fn read_trae_login_from_dir(data_dir: &str) -> Result<Option<TraeDirLoginInf
         .unwrap_or("")
         .to_string();
 
+    // 关键修复（v1.0.22）：必须提取 refreshToken，否则几小时后 token 过期无法续期
+    let refresh_token = auth_info
+        .get("refreshToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
     let account_obj = auth_info.get("account");
     let email = account_obj
         .and_then(|a| a.get("email"))
@@ -1744,6 +1751,7 @@ pub fn read_trae_login_from_dir(data_dir: &str) -> Result<Option<TraeDirLoginInf
     Ok(Some(TraeDirLoginInfo {
         user_id,
         token,
+        refresh_token,
         email,
         username,
         avatar_url,
@@ -1935,6 +1943,7 @@ pub async fn fetch_instance_status_from_api(data_dir: &str) -> Result<Option<Ins
 pub struct TraeDirLoginInfo {
     pub user_id: String,
     pub token: String,
+    pub refresh_token: String,
     pub email: String,
     pub username: String,
     pub avatar_url: String,

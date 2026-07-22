@@ -104,6 +104,7 @@ impl InstanceManager {
                     match account_manager.add_account_from_local_login(
                         login_info.user_id.clone(),
                         login_info.token.clone(),
+                        login_info.refresh_token.clone(),
                         login_info.email.clone(),
                         login_info.username.clone(),
                         login_info.avatar_url.clone(),
@@ -502,7 +503,7 @@ impl InstanceManager {
 
             let login_info = machine::TraeLoginInfo {
                 token: token.clone(),
-                refresh_token: None,
+                refresh_token: account.refresh_token.clone(),
                 user_id: account.user_id.clone(),
                 email: account.email.clone(),
                 username: account.name.clone(),
@@ -560,7 +561,7 @@ impl InstanceManager {
                 if let Some(token) = account.jwt_token.as_ref() {
                     let login_info = machine::TraeLoginInfo {
                         token: token.clone(),
-                        refresh_token: None,
+                        refresh_token: account.refresh_token.clone(),
                         user_id: account.user_id.clone(),
                         email: account.email.clone(),
                         username: account.name.clone(),

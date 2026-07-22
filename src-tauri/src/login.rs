@@ -40,6 +40,12 @@ pub async fn start_login_flow(
                 // 提取 cookies（如果有）
                 let cookies = body["cookies"].as_str().map(|s| s.to_string());
 
+                // 提取浏览器拦截到的 refreshToken（v1.0.22+ 关键修复：避免几小时后 token 失效）
+                let refresh_token = body["refresh_token"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+
                 // 提取浏览器拦截到的用户信息
                 let browser_user_info = {
                     let screen_name = body["screen_name"].as_str().unwrap_or("");
@@ -63,6 +69,7 @@ pub async fn start_login_flow(
                         cookies,
                         "browser".to_string(),
                         browser_user_info,
+                        refresh_token,
                     )
                     .await
                 {
@@ -123,6 +130,8 @@ pub async fn start_login_flow(
             var __sent = false;
             var __callbackUrl = "http://127.0.0.1:{port}/callback";
             var __userInfo = {{ screen_name: "", avatar_url: "", email: "" }};
+            // 关键修复（v1.0.22）：必须保存 refreshToken，否则几小时后 access token 过期无法续期
+            var __refreshToken = "";
 
             function tryExtractUserInfo(text) {{
                 try {{
@@ -144,6 +153,7 @@ pub async fn start_login_flow(
 
                 console.log("[Trae Auto] 捕获到 Token，长度:", token.length);
                 console.log("[Trae Auto] 已拦截用户信息:", JSON.stringify(__userInfo));
+                console.log("[Trae Auto] 已拦截 refreshToken:", __refreshToken ? "是（长度 " + __refreshToken.length + "）" : "否");
 
                 // 用 token 主动调用 GetUserInfo 获取真实用户名和头像
                 // 这样即使页面没有调用 GetUserInfo，也能获取到用户信息
@@ -173,6 +183,7 @@ pub async fn start_login_flow(
                 xhr.setRequestHeader("Content-Type", "application/json");
                 xhr.send(JSON.stringify({{
                     token: token,
+                    refresh_token: __refreshToken || "",
                     cookies: cookies,
                     screen_name: __userInfo.screen_name || "",
                     avatar_url: __userInfo.avatar_url || "",
@@ -180,10 +191,15 @@ pub async fn start_login_flow(
                 }}));
             }}
 
+            // 同时提取 token 和 refreshToken，避免几小时后 token 失效
             function tryExtractToken(text) {{
                 try {{
                     var data = typeof text === "string" ? JSON.parse(text) : text;
                     if (data && data.Result && data.Result.Token) {{
+                        // 关键修复：同时保存 refreshToken，让 TRAE 能在几小时后自动续期
+                        if (data.Result.RefreshToken) {{
+                            __refreshToken = data.Result.RefreshToken;
+                        }}
                         return data.Result.Token;
                     }}
                 }} catch(e) {{}}
