@@ -139,12 +139,14 @@ impl AccountManager {
     /// 添加账号（通过 Token，可选 Cookies）
     /// source: "browser"(浏览器登录), "local"(本地读取), "manual"(手动输入)
     /// browser_user_info: 浏览器登录时从前端拦截到的用户信息（screen_name, avatar_url, email）
+    /// refresh_token: 可选的 refresh token（v1.0.22+ 用于避免几小时后 token 失效）
     pub async fn add_account_by_token(
         &mut self,
         token: String,
         cookies: Option<String>,
         source: String,
         browser_user_info: Option<BrowserUserInfo>,
+        refresh_token: Option<String>,
     ) -> Result<Account> {
         let client = TraeApiClient::new_with_token(&token)?;
 
@@ -217,6 +219,7 @@ impl AccountManager {
         // 从 JWT token 中解析 exp 字段，避免显示"未知"状态
         account.token_expired_at = jwt_exp_from_token(&token);
         account.source = source;
+        account.refresh_token = refresh_token;
 
         self.store.accounts.push(account.clone());
 
@@ -280,7 +283,7 @@ impl AccountManager {
         // 构建登录信息
         let login_info = crate::machine::TraeLoginInfo {
             token: token.clone(),
-            refresh_token: None,
+            refresh_token: account.refresh_token.clone(),
             user_id: account.user_id.clone(),
             email: account.email.clone(),
             username: account.name.clone(),
@@ -324,7 +327,7 @@ impl AccountManager {
         // 构建登录信息
         let login_info = crate::machine::TraeLoginInfo {
             token: token.clone(),
-            refresh_token: None,
+            refresh_token: account.refresh_token.clone(),
             user_id: account.user_id.clone(),
             email: account.email.clone(),
             username: account.name.clone(),
@@ -450,10 +453,12 @@ impl AccountManager {
     /// 用于 auto_bind_accounts 时发现 storage.json 中登录的账号不在本地账号列表的场景
     /// source = "local"
     /// tenant_id 从 JWT token payload 解析；解析失败则用空字符串
+    /// refresh_token 从 storage.json 的 iCubeAuthInfo.refreshToken 提取（v1.0.22+ 修复 token 失效）
     pub fn add_account_from_local_login(
         &mut self,
         user_id: String,
         token: String,
+        refresh_token: String,
         email: String,
         username: String,
         avatar_url: String,
@@ -487,6 +492,7 @@ impl AccountManager {
         account.region = if region.is_empty() { "CN".to_string() } else { region };
         account.source = "local".to_string();
         account.plan_type = "Free".to_string();
+        account.refresh_token = if refresh_token.is_empty() { None } else { Some(refresh_token) };
 
         self.store.accounts.push(account.clone());
 

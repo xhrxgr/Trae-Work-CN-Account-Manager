@@ -38,6 +38,10 @@ pub struct Account {
     /// None=使用默认目录(单实例切换模式), Some=多开模式专属目录
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// JWT refresh token，用于在 access token 过期后自动续期
+    /// 缺失会导致几小时后 token 失效无法续期（v1.0.22+ 修复）
+    #[serde(default)]
+    pub refresh_token: Option<String>,
 }
 
 impl Account {
@@ -68,6 +72,7 @@ impl Account {
             source: String::new(),
             note: None,
             data_dir: None,
+            refresh_token: None,
         }
     }
 }
