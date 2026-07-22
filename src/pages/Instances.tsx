@@ -38,6 +38,11 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     name: string;
   } | null>(null);
 
+  const [noteModal, setNoteModal] = useState<{
+    instanceId: string;
+    note: string;
+  } | null>(null);
+
   const [accountSelectModal, setAccountSelectModal] = useState<{
     instanceId: string;
   } | null>(null);
@@ -86,6 +91,26 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
         }
       },
     });
+  };
+
+  // 刷新单个实例的账号状态（调用官方 API 获取实时额度）
+  const handleRefreshStatus = async (instanceId: string) => {
+    try {
+      const status = await api.refreshInstanceStatus(instanceId);
+      if (status) {
+        // 更新对应实例的 account_status（不重新加载整个列表）
+        setInstances((prev) =>
+          prev.map((inst) =>
+            inst.id === instanceId ? { ...inst, account_status: status } : inst
+          )
+        );
+        addToast("success", "已从官方 API 获取实时额度");
+      } else {
+        addToast("info", "该实例未登录或实例不存在");
+      }
+    } catch (err: any) {
+      addToast("error", err.message || "刷新失败");
+    }
   };
 
   // 打开数据目录
@@ -146,6 +171,25 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     }
   };
 
+  // 编辑备注
+  const handleEditNote = (instanceId: string) => {
+    const inst = instances.find((i) => i.id === instanceId);
+    if (!inst) return;
+    setNoteModal({ instanceId, note: inst.note ?? "" });
+  };
+
+  const handleNoteSubmit = async () => {
+    if (!noteModal) return;
+    try {
+      const trimmed = noteModal.note.trim();
+      await api.updateInstanceNote(noteModal.instanceId, trimmed.length > 0 ? trimmed : null);
+      setNoteModal(null);
+      await loadInstances();
+    } catch (err: any) {
+      alert(err.message || "备注更新失败");
+    }
+  };
+
   // 切换账号
   const handleSwitchAccount = (instanceId: string) => {
     setAccountSelectModal({ instanceId });
@@ -194,6 +238,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
                 e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, instanceId: inst.id });
               }}
+              onRefreshStatus={handleRefreshStatus}
             />
           ))}
         </div>
@@ -236,6 +281,10 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
             handleRename(contextMenu.instanceId);
             setContextMenu(null);
           }}
+          onEditNote={() => {
+            handleEditNote(contextMenu.instanceId);
+            setContextMenu(null);
+          }}
           onDelete={() => {
             handleDelete(contextMenu.instanceId);
             setContextMenu(null);
@@ -270,6 +319,29 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
                 取消
               </button>
               <button className="btn-primary" onClick={handleRenameSubmit}>
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noteModal && (
+        <div className="modal-overlay" onClick={() => setNoteModal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>编辑实例备注</h2>
+            <input
+              type="text"
+              value={noteModal.note}
+              onChange={(e) => setNoteModal({ ...noteModal, note: e.target.value })}
+              placeholder="可选，例如：工作账号 / 临时测试"
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setNoteModal(null)}>
+                取消
+              </button>
+              <button className="btn-primary" onClick={handleNoteSubmit}>
                 确定
               </button>
             </div>
