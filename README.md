@@ -167,14 +167,6 @@ src/
 
 ---
 
-## 免责声明
-
-> **本工具仅供学习和技术研究使用。使用者需自行承担所有风险。**
->
-> 使用本工具可能违反 TRAE Work CN 的服务条款。作者不对因使用本工具而导致的任何后果负责，包括但不限于账号封禁、数据丢失等。
-
----
-
 ## 致谢
 
 - 原项目 [Yang-505/Trae-Account-Manager](https://github.com/Yang-505/Trae-Account-Manager)
