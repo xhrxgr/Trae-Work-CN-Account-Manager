@@ -59,6 +59,12 @@ temp_repo/
 # AI agent docs (local only, not for public repo)
 AGENTS.md
 
+# Trae IDE local documents
+.trae/
+
+# AI planning docs (local only)
+docs/superpowers/
+
 # Application data (optional, uncomment if you don't want to track)
 # *.db
 # *.sqlite

@@ -563,14 +563,32 @@ pub fn open_solo_cn() -> Result<()> {
     open_product(ProductType::TraeSoloCn)
 }
 
+/// 向指定 data-dir 的 settings.json 写入 window.title 配置
+/// TRAE 原生支持 window.title 配置项，跨重启持久化，比 --title CLI 参数更可靠
+pub fn write_window_title_to_dir(data_dir: &str, title: &str) -> Result<()> {
+    let settings_path = PathBuf::from(data_dir).join("User").join("settings.json");
+    let mut json: serde_json::Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| anyhow!("读取 settings.json 失败: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    json["window.title"] = serde_json::Value::String(title.to_string());
+    fs::write(&settings_path, serde_json::to_string_pretty(&json)?)
+        .map_err(|e| anyhow!("写入 settings.json 失败: {}", e))?;
+    println!("[INFO] 已设置 window.title = \"{}\" (data-dir: {})", title, data_dir);
+    Ok(())
+}
+
 /// 多开模式：用指定 data-dir 启动产品（不影响已运行的实例）
 /// data_dir: 独立数据目录路径；extensions_dir: 共享插件目录路径
+/// 注意：窗口标题通过 write_window_title_to_dir 设置（settings.json），--title CLI 参数对 TRAE 无效
 #[cfg(target_os = "windows")]
 pub fn open_product_with_data_dir(
     product_type: ProductType,
     data_dir: &str,
     extensions_dir: Option<&str>,
-    window_title: Option<&str>,
 ) -> Result<()> {
     let exe_path = match get_saved_product_path(product_type) {
         Ok(path) => PathBuf::from(path),
@@ -602,9 +620,6 @@ pub fn open_product_with_data_dir(
         fs::create_dir_all(ext_dir).ok();
         cmd.arg("--extensions-dir").arg(ext_dir);
     }
-    if let Some(title) = window_title {
-        cmd.arg("--title").arg(title);
-    }
 
     cmd.spawn()
         .map_err(|e| anyhow!("多开启动 {} 失败: {}", product_type.display_name(), e))?;
@@ -618,7 +633,6 @@ pub fn open_product_with_data_dir(
     _product_type: ProductType,
     _data_dir: &str,
     _extensions_dir: Option<&str>,
-    _window_title: Option<&str>,
 ) -> Result<()> {
     Err(anyhow!("此功能仅支持 Windows 系统"))
 }
@@ -1072,8 +1086,11 @@ pub fn launch_product_multi(
 
     println!("[INFO] 已写入 {} 多开登录信息: {}", display_name, info.email);
 
-    // 4. 启动多开实例
-    open_product_with_data_dir(product_type, data_dir, extensions_dir, Some(&info.username))?;
+    // 4. 设置窗口标题（通过 settings.json 的 window.title，比 --title CLI 参数更可靠）
+    let _ = write_window_title_to_dir(data_dir, &info.username);
+
+    // 5. 启动多开实例
+    open_product_with_data_dir(product_type, data_dir, extensions_dir)?;
 
     println!("[INFO] {} 多开已启动: {}", display_name, info.email);
     Ok(())
@@ -1645,6 +1662,328 @@ pub fn decrypt_solo_cn_auth_info(_encrypted_b64: &str) -> Result<String> {
     Err(anyhow!("此功能仅支持 Windows 系统"))
 }
 
+/// 从任意 data-dir 读取 TRAE 登录信息（自动处理加密/明文两种格式）
+/// 返回 (user_id, token, email, username, avatar_url, region)
+/// 如果未登录或 storage.json 不存在，返回 Ok(None)
+pub fn read_trae_login_from_dir(data_dir: &str) -> Result<Option<TraeDirLoginInfo>> {
+    let storage_path = PathBuf::from(data_dir)
+        .join("User")
+        .join("globalStorage")
+        .join("storage.json");
+
+    if !storage_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&storage_path)
+        .map_err(|e| anyhow!("读取 storage.json 失败: {}", e))?;
+
+    let storage: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("解析 storage.json 失败: {}", e))?;
+
+    let auth_info_str = match storage.get("iCubeAuthInfo://icube.cloudide").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    // 尝试 JSON 解析，失败则解密
+    let auth_info: serde_json::Value = match serde_json::from_str(auth_info_str) {
+        Ok(json) => json,
+        Err(_) => {
+            println!("[INFO] data-dir 认证信息已加密，尝试解密: {}", data_dir);
+            let decrypted = decrypt_solo_cn_auth_info(auth_info_str)?;
+            serde_json::from_str(&decrypted)
+                .map_err(|e| anyhow!("解密后 JSON 解析失败: {}", e))?
+        }
+    };
+
+    let user_id = auth_info
+        .get("userId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if user_id.is_empty() {
+        return Ok(None);
+    }
+
+    let token = auth_info
+        .get("token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let account_obj = auth_info.get("account");
+    let email = account_obj
+        .and_then(|a| a.get("email"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let username = account_obj
+        .and_then(|a| a.get("username"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let avatar_url = account_obj
+        .and_then(|a| a.get("avatar_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let region = auth_info
+        .get("userRegion")
+        .and_then(|r| r.get("region"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            account_obj
+                .and_then(|a| a.get("storeRegion"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("CN")
+        .to_string();
+
+    Ok(Some(TraeDirLoginInfo {
+        user_id,
+        token,
+        email,
+        username,
+        avatar_url,
+        region,
+    }))
+}
+
+/// 从任意 data-dir 读取账号状态信息（用于实例卡片显示）
+/// 解析 iCubeServerData 中的 entitlementInfo 字段
+/// 返回 Ok(None) 表示未登录或无状态信息
+pub fn read_instance_account_status(data_dir: &str) -> Result<Option<InstanceAccountStatus>> {
+    let storage_path = PathBuf::from(data_dir)
+        .join("User")
+        .join("globalStorage")
+        .join("storage.json");
+
+    if !storage_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&storage_path)
+        .map_err(|e| anyhow!("读取 storage.json 失败: {}", e))?;
+
+    let storage: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("解析 storage.json 失败: {}", e))?;
+
+    // 同时从 iCubeAuthInfo 拿 user_id（用于关联账号）
+    let user_id = storage
+        .get("iCubeAuthInfo://icube.cloudide")
+        .and_then(|v| v.as_str())
+        .and_then(|s| {
+            // 先尝试 JSON，失败则解密
+            serde_json::from_str::<serde_json::Value>(s)
+                .ok()
+                .or_else(|| decrypt_solo_cn_auth_info(s).ok().and_then(|d| serde_json::from_str(&d).ok()))
+        })
+        .and_then(|a| a.get("userId").and_then(|u| u.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    // 关键修复（v1.0.21）: user_id 为空 = 未登录，即使 iCubeServerData/iCubeEntitlementInfo
+    // 有残留旧数据（之前登录过又登出），也不应返回 status，否则未登录实例会误显示"Free · 已用完"
+    if user_id.is_empty() {
+        return Ok(None);
+    }
+
+    // iCubeServerData 是上次同步的服务器数据（非加密 JSON 字符串）
+    // 包含 lastSyncTime，可用来判断数据是否新鲜
+    let server_data_str = storage
+        .get("iCubeServerData://icube.cloudide")
+        .and_then(|v| v.as_str());
+
+    // iCubeEntitlementInfo 是 IDE 本地缓存，IDE 实际显示用的就是这个
+    let local_entitlement_str = storage
+        .get("iCubeEntitlementInfo://icube.cloudide")
+        .and_then(|v| v.as_str());
+
+    if server_data_str.is_none() && local_entitlement_str.is_none() {
+        return Ok(None);
+    }
+
+    // 优先用 iCubeEntitlementInfo（IDE 本地实时缓存，每次对话后递减，是 IDE 实际判断能否对话的依据）
+    // 回退到 iCubeServerData（服务器同步快照，可能滞后）
+    // last_sync_ms 始终从 iCubeServerData.serverTimeInfo.lastSyncTime 读取（iCubeEntitlementInfo 没有时间戳）
+    let server_sync_time: i64 = server_data_str
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|sd| sd.get("serverTimeInfo").and_then(|t| t.get("lastSyncTime")).and_then(|v| v.as_i64()))
+        .unwrap_or(0);
+
+    let (entitlement, last_sync_ms) = if let Some(s) = local_entitlement_str {
+        // 优先用本地实时缓存
+        let ent: serde_json::Value = serde_json::from_str(s)
+            .map_err(|e| anyhow!("解析 iCubeEntitlementInfo 失败: {}", e))?;
+        (Some(ent), server_sync_time)
+    } else if let Some(s) = server_data_str {
+        // 回退到服务器同步数据
+        let sd: serde_json::Value = serde_json::from_str(s)
+            .map_err(|e| anyhow!("解析 iCubeServerData 失败: {}", e))?;
+        let ent = sd.get("entitlementInfo").cloned();
+        (ent, server_sync_time)
+    } else {
+        (None, 0)
+    };
+
+    let entitlement = match entitlement {
+        Some(e) => e,
+        None => return Ok(None),
+    };
+
+    let detail = entitlement.get("detail");
+    let identity_str = entitlement
+        .get("identityStr")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Free")
+        .to_string();
+    // 优先用 snake_case，回退到 camelCase（本地缓存有两种命名）
+    let fast_request_per = detail
+        .and_then(|d| d.get("fast_request_per"))
+        .and_then(|v| v.as_i64())
+        .or_else(|| {
+            detail
+                .and_then(|d| d.get("fastRequestPer"))
+                .and_then(|v| v.as_i64())
+        })
+        .unwrap_or(0);
+    let can_gen_solo_code = detail
+        .and_then(|d| d.get("can_gen_solo_code"))
+        .and_then(|v| v.as_bool())
+        .or_else(|| {
+            detail
+                .and_then(|d| d.get("canGenSoloCode"))
+                .and_then(|v| v.as_bool())
+        })
+        .unwrap_or(false);
+    let is_pay_freshman = entitlement
+        .get("isPayFreshman")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    Ok(Some(InstanceAccountStatus {
+        user_id,
+        identity_str,
+        fast_request_per,
+        can_gen_solo_code,
+        is_pay_freshman,
+        last_sync_ms,
+        // API 实时字段默认值（本地缓存路径不填，由 refresh_instance_status 命令填充）
+        is_from_api: false,
+        fast_request_limit: 0,
+        fast_request_used: 0.0,
+        fast_request_left: 0.0,
+        extra_fast_request_left: 0.0,
+        extra_package_name: String::new(),
+        reset_time: 0,
+        is_free_plan: false,
+    }))
+}
+
+/// 通过官方 API 获取实例的实时账号状态（v1.0.21+）
+/// 流程：读 storage.json 拿 token → 调用 user_current_entitlement_list → 转换为 InstanceAccountStatus
+/// 失败时返回 Err，由调用方决定是否回退到本地缓存
+pub async fn fetch_instance_status_from_api(data_dir: &str) -> Result<Option<InstanceAccountStatus>> {
+    use crate::api::trae_api::TraeApiClient;
+
+    // 1. 从 storage.json 读取 token + user_id
+    let login_info = match read_trae_login_from_dir(data_dir)? {
+        Some(info) if !info.token.is_empty() && !info.user_id.is_empty() => info,
+        _ => return Ok(None), // 未登录
+    };
+
+    // 2. 用 token 创建 API 客户端并调用官方接口
+    let client = TraeApiClient::new_with_token(&login_info.token)?;
+    let summary = client.get_usage_summary_by_token().await?;
+
+    // 3. 转换为 InstanceAccountStatus
+    // identity_str: 优先用 plan_display_desc，回退 plan_type
+    let identity_str = if !summary.plan_display_desc.is_empty() {
+        summary.plan_display_desc.clone()
+    } else {
+        summary.plan_type.clone()
+    };
+
+    // fast_request_per: 兼容字段，= floor(fast_request_left)
+    let fast_request_per = if summary.fast_request_limit > 0 {
+        summary.fast_request_left.floor() as i64
+    } else {
+        0 // 免费版无额度（limit=0）
+    };
+
+    Ok(Some(InstanceAccountStatus {
+        user_id: login_info.user_id,
+        identity_str,
+        fast_request_per,
+        can_gen_solo_code: false, // API 不返回此字段，保持 false
+        is_pay_freshman: summary.is_pay_freshman,
+        last_sync_ms: chrono::Utc::now().timestamp_millis(), // API 实时获取，用当前时间
+        is_from_api: true,
+        fast_request_limit: summary.fast_request_limit,
+        fast_request_used: summary.fast_request_used,
+        fast_request_left: summary.fast_request_left,
+        extra_fast_request_left: summary.extra_fast_request_left,
+        extra_package_name: summary.extra_package_name,
+        reset_time: summary.reset_time,
+        is_free_plan: summary.is_free_plan,
+    }))
+}
+
+/// 从 data-dir 读取的登录信息（轻量版，仅用于实例自动绑定）
+#[derive(Debug, Clone)]
+pub struct TraeDirLoginInfo {
+    pub user_id: String,
+    pub token: String,
+    pub email: String,
+    pub username: String,
+    pub avatar_url: String,
+    pub region: String,
+}
+
+/// 实例的账号状态（用于卡片展示）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InstanceAccountStatus {
+    /// 当前登录的 user_id（用于关联账号）
+    pub user_id: String,
+    /// 账号身份: "Free" / "Pro" 等
+    pub identity_str: String,
+    /// 剩余的快速请求次数（月免费配额）
+    /// 0 = 已用完本月免费次数
+    pub fast_request_per: i64,
+    /// 是否可以生成 solo code
+    pub can_gen_solo_code: bool,
+    /// 是否是付费新手
+    pub is_pay_freshman: bool,
+    /// iCubeServerData 的 lastSyncTime（毫秒），0 表示仅有本地缓存无同步时间
+    pub last_sync_ms: i64,
+    /// ===== 以下为 API 实时获取的字段（v1.0.21+）=====
+    /// 是否来自官方 API 实时获取（true=实时，false=本地缓存推测）
+    #[serde(default)]
+    pub is_from_api: bool,
+    /// 总额度（来自 API），0 表示免费版无该配额
+    #[serde(default)]
+    pub fast_request_limit: i64,
+    /// 已用次数（来自 API）
+    #[serde(default)]
+    pub fast_request_used: f64,
+    /// 剩余次数（来自 API，= limit - used）
+    #[serde(default)]
+    pub fast_request_left: f64,
+    /// 额外礼包剩余次数（如周年礼包，来自 API）
+    #[serde(default)]
+    pub extra_fast_request_left: f64,
+    /// 额外礼包名称（来自 API）
+    #[serde(default)]
+    pub extra_package_name: String,
+    /// 额度重置时间（来自 API，UTC 秒）
+    #[serde(default)]
+    pub reset_time: i64,
+    /// 是否免费版（来自 API）
+    #[serde(default)]
+    pub is_free_plan: bool,
+}
+
 /// 简单的 MD5 哈希（用于生成 telemetry.machineId 格式）
 fn md5_hash(input: &str) -> u128 {
     use std::collections::hash_map::DefaultHasher;
@@ -1806,5 +2145,96 @@ mod tests {
         assert_eq!(plaintext, decrypt_solo_cn_auth_info(&enc1).unwrap());
         assert_eq!(plaintext, decrypt_solo_cn_auth_info(&enc2).unwrap());
         println!("[TEST] 随机 embedded_key 测试通过!");
+    }
+
+    /// 测试 write_window_title_to_dir 创建 settings.json 并写入 window.title
+    #[test]
+    fn test_write_window_title_to_dir_creates_settings_json() {
+        let tmp_dir = std::env::temp_dir().join(format!("trae_test_ttl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(tmp_dir.join("User")).unwrap();
+
+        let result = write_window_title_to_dir(
+            tmp_dir.to_str().unwrap(),
+            "MyInstance - TRAE Work CN",
+        );
+        assert!(result.is_ok(), "write_window_title_to_dir should succeed");
+
+        let settings_path = tmp_dir.join("User").join("settings.json");
+        assert!(settings_path.exists(), "settings.json should be created");
+
+        let content = std::fs::read_to_string(&settings_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            json["window.title"],
+            "MyInstance - TRAE Work CN",
+            "window.title should match input"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// 测试 write_window_title_to_dir 合并现有 settings.json
+    #[test]
+    fn test_write_window_title_to_dir_merges_existing_settings() {
+        let tmp_dir = std::env::temp_dir().join(format!("trae_test_merge_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(tmp_dir.join("User")).unwrap();
+
+        // 创建现有 settings.json
+        let existing = serde_json::json!({"editor.fontSize": 14});
+        std::fs::write(
+            tmp_dir.join("User").join("settings.json"),
+            serde_json::to_string_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+
+        let result = write_window_title_to_dir(
+            tmp_dir.to_str().unwrap(),
+            "MyInstance - TRAE Work CN",
+        );
+        assert!(result.is_ok(), "write_window_title_to_dir should succeed");
+
+        let content = std::fs::read_to_string(tmp_dir.join("User").join("settings.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // 应保留现有设置
+        assert_eq!(json["editor.fontSize"], 14, "should preserve existing settings");
+        // 应添加 window.title
+        assert_eq!(
+            json["window.title"],
+            "MyInstance - TRAE Work CN",
+            "should add window.title"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// 测试 write_window_title_to_dir 覆盖已存在的 window.title
+    #[test]
+    fn test_write_window_title_to_dir_overrides_existing_title() {
+        let tmp_dir = std::env::temp_dir().join(format!("trae_test_override_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(tmp_dir.join("User")).unwrap();
+
+        // 创建带有旧 window.title 的 settings.json
+        let existing = serde_json::json!({"window.title": "Old Title"});
+        std::fs::write(
+            tmp_dir.join("User").join("settings.json"),
+            serde_json::to_string_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+
+        write_window_title_to_dir(tmp_dir.to_str().unwrap(), "New Title - TRAE Work CN").unwrap();
+
+        let content = std::fs::read_to_string(tmp_dir.join("User").join("settings.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            json["window.title"],
+            "New Title - TRAE Work CN",
+            "should override existing window.title"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

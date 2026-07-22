@@ -86,8 +86,8 @@ export function AccountListItem({ account, selected, onSelect, onContextMenu }: 
       </div>
 
       <div className="list-item-status">
-        <span className={`status-dot ${tokenStatus === "expired" ? "expired" : tokenStatus === "expiring" ? "expiring" : "normal"}`}></span>
-        <span>{tokenStatus === "expired" ? "过期" : tokenStatus === "expiring" ? "即将过期" : "正常"}</span>
+        <span className={`status-dot ${tokenStatus === "expired" ? "expired" : tokenStatus === "expiring" ? "expiring" : tokenStatus === "unknown" ? "unknown" : "normal"}`}></span>
+        <span>{tokenStatus === "expired" ? "过期" : tokenStatus === "expiring" ? "即将过期" : tokenStatus === "unknown" ? "未知" : "正常"}</span>
       </div>
 
       <div className="list-item-actions">

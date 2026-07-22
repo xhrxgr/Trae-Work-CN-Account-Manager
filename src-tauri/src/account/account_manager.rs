@@ -1,9 +1,52 @@
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::PathBuf;
+use base64::Engine;
 
 use super::types::*;
 use crate::api::{TraeApiClient, UsageSummary};
+
+/// 从 JWT token 中提取 exp 字段（解析 payload 中的 exp 时间戳并格式化为 RFC3339 字符串）
+fn jwt_exp_from_token(token: &str) -> Option<String> {
+    parse_jwt_meta(token).1
+}
+
+/// 从 JWT token 中解析 tenant_id 和过期时间
+/// 返回 (tenant_id, Option<expired_at_rfc3339>)
+/// tenant_id 在 payload.data.tenant_id；解析失败返回空字符串
+fn parse_jwt_meta(token: &str) -> (String, Option<String>) {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() < 2 {
+        return (String::new(), None);
+    }
+    let payload_b64 = parts[1];
+    // JWT 使用 base64url（无填充）
+    let decoded = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload_b64) {
+        Ok(d) => d,
+        Err(_) => return (String::new(), None),
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&decoded) {
+        Ok(v) => v,
+        Err(_) => return (String::new(), None),
+    };
+
+    // tenant_id 在 payload.data.tenant_id
+    let tenant_id = json
+        .get("data")
+        .and_then(|d| d.get("tenant_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // exp 字段
+    let exp = json.get("exp").and_then(|v| v.as_i64());
+    let expired_at = exp.and_then(|secs| {
+        chrono::DateTime::from_timestamp(secs, 0)
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+    });
+
+    (tenant_id, expired_at)
+}
 
 /// 账号管理器
 pub struct AccountManager {
@@ -170,8 +213,9 @@ impl AccountManager {
         );
 
         account.avatar_url = avatar_url;
-        account.jwt_token = Some(token);
-        account.token_expired_at = None;
+        account.jwt_token = Some(token.clone());
+        // 从 JWT token 中解析 exp 字段，避免显示"未知"状态
+        account.token_expired_at = jwt_exp_from_token(&token);
         account.source = source;
 
         self.store.accounts.push(account.clone());
@@ -400,6 +444,60 @@ impl AccountManager {
     /// 获取当前登录账号 ID
     pub fn get_current_account_id(&self) -> Option<String> {
         self.store.current_account_id.clone()
+    }
+
+    /// 从本地 data-dir 的登录信息创建新账号（同步方法，不调用 API）
+    /// 用于 auto_bind_accounts 时发现 storage.json 中登录的账号不在本地账号列表的场景
+    /// source = "local"
+    /// tenant_id 从 JWT token payload 解析；解析失败则用空字符串
+    pub fn add_account_from_local_login(
+        &mut self,
+        user_id: String,
+        token: String,
+        email: String,
+        username: String,
+        avatar_url: String,
+        region: String,
+    ) -> Result<Account> {
+        // 二次检查：避免并发情况下重复添加
+        if self.store.accounts.iter().any(|a| a.user_id == user_id) {
+            return Err(anyhow!("该 user_id 已存在: {}", user_id));
+        }
+
+        // 从 JWT 解析 tenant_id 和 exp
+        let (tenant_id, token_expired_at) = parse_jwt_meta(&token);
+
+        // 用户名优先用 storage.json 中的；为空时回退到 User_<user_id前8位>
+        let name = if username.is_empty() {
+            format!("User_{}", &user_id[..8.min(user_id.len())])
+        } else {
+            username
+        };
+
+        let mut account = Account::new(
+            name,
+            email,
+            String::new(), // 无 cookies
+            user_id,
+            tenant_id,
+        );
+        account.avatar_url = avatar_url;
+        account.jwt_token = Some(token);
+        account.token_expired_at = token_expired_at;
+        account.region = if region.is_empty() { "CN".to_string() } else { region };
+        account.source = "local".to_string();
+        account.plan_type = "Free".to_string();
+
+        self.store.accounts.push(account.clone());
+
+        // 如果是第一个账号，设为活跃账号
+        if self.store.active_account_id.is_none() {
+            self.store.active_account_id = Some(account.id.clone());
+        }
+
+        self.save_store()?;
+        println!("[INFO] 从 data-dir 自动创建新账号: {} (user_id={})", account.name, account.user_id);
+        Ok(account)
     }
 
     /// 更新账号备注

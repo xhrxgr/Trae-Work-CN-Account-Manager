@@ -91,10 +91,12 @@ export function AccountCard({ account, selected, onSelect, onContextMenu }: Acco
           </div>
         </div>
 
-        <div className={`card-status ${tokenStatus === "expired" ? "expired" : tokenStatus === "expiring" ? "expiring" : "normal"}`}>
-          <span className="status-indicator"></span>
-          {tokenStatus === "expired" ? "已过期" : tokenStatus === "expiring" ? "即将过期" : "正常"}
-        </div>
+        {tokenStatus !== "unknown" && (
+          <div className={`card-status ${tokenStatus === "expired" ? "expired" : tokenStatus === "expiring" ? "expiring" : "normal"}`}>
+            <span className="status-indicator"></span>
+            {tokenStatus === "expired" ? "已过期" : tokenStatus === "expiring" ? "即将过期" : "正常"}
+          </div>
+        )}
       </div>
 
       <div className="card-tags">

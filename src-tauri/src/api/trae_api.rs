@@ -313,7 +313,10 @@ impl TraeApiClient {
                 Ok(summary)
             }
             Ok(resp) => {
-                Err(anyhow!("API 返回错误: {}", resp.status()))
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                println!("[DEBUG] API Error {} body: {}", status, body);
+                Err(anyhow!("API 返回错误 {}: {}", status, body))
             }
             Err(e) => {
                 Err(anyhow!("请求失败: {}", e))
