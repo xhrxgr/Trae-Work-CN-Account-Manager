@@ -140,12 +140,12 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     setConfirmModal({
       isOpen: true,
       title: "删除实例",
-      message: `确定删除实例 "${inst.name}" 吗？\n\n点击"确定"将删除实例配置和数据目录。`,
+      message: `确定删除实例 "${inst.name}" 吗？\n\n将永久删除实例配置和全部数据目录（无法恢复）。\n如果实例正在运行，请先关闭再删除，否则会因文件占用导致删除失败。`,
       deleteData: true,
       type: "danger",
       onConfirm: () => {
-        const delData = confirmModal?.deleteData ?? false;
-        api.deleteInstance(instanceId, delData)
+        // 直接用 true，不依赖闭包里可能陈旧的 confirmModal 状态
+        api.deleteInstance(instanceId, true)
           .then(() => loadInstances())
           .catch((err) => alert(err.message || "删除失败"));
         setConfirmModal(null);
