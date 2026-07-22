@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::machine::InstanceAccountStatus;
+
 /// TRAE 实例（独立 data-dir 的工作环境）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraeInstance {
@@ -18,8 +20,15 @@ pub struct TraeInstance {
     /// 该实例的机器码（None=首次启动时生成）
     #[serde(default)]
     pub machine_id: Option<String>,
+    /// 用户自定义备注（与实例名配合使用，方便区分用途）
+    #[serde(default)]
+    pub note: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// 上次启动时间（UTC 时间戳秒，0 表示从未启动）
+    /// 由 launch_instance 调用时更新（包括从快捷方式启动的检测、在管理器中点启动）
+    #[serde(default)]
+    pub last_launched_at: i64,
 }
 
 /// 实例列表存储结构
@@ -44,14 +53,24 @@ pub struct InstanceBrief {
     pub bound_account_avatar: Option<String>,
     /// 绑定账号的备注
     pub bound_account_note: Option<String>,
+    /// 实例自定义备注
+    #[serde(default)]
+    pub note: Option<String>,
     pub machine_id: Option<String>,
     pub created_at: i64,
+    /// 上次启动时间（UTC 时间戳秒，0 表示从未启动）
+    #[serde(default)]
+    pub last_launched_at: i64,
     /// 磁盘占用（字节）
     pub disk_usage: u64,
     /// 是否正在运行
     pub is_running: bool,
     /// code.lock 中的 PID（运行时才有）
     pub pid: Option<u32>,
+    /// 当前 data-dir 实际登录的账号状态（来自 storage.json 的 iCubeServerData）
+    /// 与 bound_account_id 可能不一致（用户可能在 IDE 内手动切换账号）
+    #[serde(default)]
+    pub account_status: Option<InstanceAccountStatus>,
 }
 
 /// 生成简单 UUID
@@ -71,8 +90,10 @@ impl TraeInstance {
             is_default,
             bound_account_id: None,
             machine_id: None,
+            note: None,
             created_at: now,
             updated_at: now,
+            last_launched_at: 0,
         }
     }
 }

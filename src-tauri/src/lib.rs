@@ -11,6 +11,7 @@ use tauri::State;
 use account::{AccountBrief, AccountManager, Account, BrowserUserInfo};
 use api::UsageSummary;
 use instance::{InstanceBrief, InstanceManager, TraeInstance};
+use machine::InstanceAccountStatus;
 
 /// 应用状态
 pub struct AppState {
@@ -158,6 +159,17 @@ async fn rename_instance(
     manager.rename_instance(&instance_id, &new_name).map_err(Into::into)
 }
 
+/// 更新实例备注
+#[tauri::command]
+async fn update_instance_note(
+    instance_id: String,
+    note: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let mut manager = state.instance_manager.lock().await;
+    manager.update_instance_note(&instance_id, note).map_err(Into::into)
+}
+
 /// 绑定账号到实例（写入登录信息）
 #[tauri::command]
 async fn bind_account_to_instance(
@@ -170,11 +182,12 @@ async fn bind_account_to_instance(
     manager.bind_account(&instance_id, account_id.as_deref(), &account_manager).map_err(Into::into)
 }
 
-/// 启动实例
+/// 启动实例（若绑定了账号则自动写入登录信息 + 窗口标题）
 #[tauri::command]
 async fn launch_instance(instance_id: String, state: State<'_, AppState>) -> Result<bool> {
-    let manager = state.instance_manager.lock().await;
-    manager.launch_instance(&instance_id).map_err(Into::into)
+    let account_manager = state.account_manager.lock().await;
+    let mut manager = state.instance_manager.lock().await;
+    manager.launch_instance(&instance_id, &account_manager).map_err(Into::into)
 }
 
 /// 打开实例数据目录
@@ -189,6 +202,26 @@ async fn open_instance_data_dir(instance_id: String, state: State<'_, AppState>)
 async fn create_instance_shortcut(instance_id: String, state: State<'_, AppState>) -> Result<String> {
     let manager = state.instance_manager.lock().await;
     manager.create_instance_shortcut(&instance_id).map_err(Into::into)
+}
+
+/// 刷新实例的账号状态（调用官方 API 获取实时额度，v1.0.21+）
+/// 用户要求额度必须来自官方来源，不能靠本地缓存推测
+#[tauri::command]
+async fn refresh_instance_status(instance_id: String, state: State<'_, AppState>) -> Result<Option<InstanceAccountStatus>> {
+    // 1. 拿到 data_dir（锁内快速操作，不持有锁调 API）
+    let data_dir = {
+        let manager = state.instance_manager.lock().await;
+        match manager.get_instance_data_dir(&instance_id) {
+            Some(dir) => dir,
+            None => return Ok(None), // 实例不存在
+        }
+    };
+
+    // 2. 调用官方 API 获取实时额度（锁外执行，避免长时间持有 instance_manager 锁）
+    match machine::fetch_instance_status_from_api(&data_dir).await {
+        Ok(status) => Ok(status),
+        Err(e) => Err(anyhow::anyhow!("获取实时额度失败: {}。请检查网络或重新登录该实例", e).into()),
+    }
 }
 
 /// 导出所有账号为 JSON 字符串
@@ -334,8 +367,8 @@ async fn start_browser_login(app: tauri::AppHandle, state: State<'_, AppState>) 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let account_manager = AccountManager::new().expect("无法初始化账号管理器");
-    let instance_manager = InstanceManager::new(&account_manager).expect("无法初始化实例管理器");
+    let mut account_manager = AccountManager::new().expect("无法初始化账号管理器");
+    let instance_manager = InstanceManager::new(&mut account_manager).expect("无法初始化实例管理器");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -357,10 +390,12 @@ pub fn run() {
             create_instance,
             delete_instance,
             rename_instance,
+            update_instance_note,
             bind_account_to_instance,
             launch_instance,
             open_instance_data_dir,
             create_instance_shortcut,
+            refresh_instance_status,
             export_accounts,
             export_accounts_to_file,
             import_accounts,

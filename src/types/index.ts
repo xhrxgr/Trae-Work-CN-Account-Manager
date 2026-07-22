@@ -37,6 +37,25 @@ export interface Account {
   data_dir: string | null;
 }
 
+// 实例账号状态（来自 data-dir 的 storage.json 或官方 API 实时获取）
+export interface InstanceAccountStatus {
+  user_id: string;
+  identity_str: string;       // "Free" / "Pro" 等
+  fast_request_per: number;    // 月免费剩余次数（0=已用完）
+  can_gen_solo_code: boolean;
+  is_pay_freshman: boolean;
+  last_sync_ms: number;        // iCubeServerData 的 lastSyncTime（毫秒），0=无同步时间
+  // ===== API 实时字段（v1.0.21+）=====
+  is_from_api: boolean;        // true=官方API实时获取，false=本地缓存推测
+  fast_request_limit: number;  // 总额度（API），0=免费版无配额
+  fast_request_used: number;   // 已用次数（API）
+  fast_request_left: number;  // 剩余次数（API，= limit - used）
+  extra_fast_request_left: number;  // 额外礼包剩余（如周年礼包）
+  extra_package_name: string;  // 额外礼包名称
+  reset_time: number;          // 额度重置时间（UTC 秒）
+  is_free_plan: boolean;       // 是否免费版
+}
+
 // 实例简要信息
 export interface InstanceBrief {
   id: string;
@@ -48,11 +67,14 @@ export interface InstanceBrief {
   bound_account_name: string | null;
   bound_account_avatar: string | null;
   bound_account_note: string | null;
+  note: string | null;        // 实例自定义备注
   machine_id: string | null;
   created_at: number;
+  last_launched_at: number;  // 上次启动时间（UTC 秒），0=从未启动
   disk_usage: number;
   is_running: boolean;
   pid: number | null;
+  account_status: InstanceAccountStatus | null;
 }
 
 // API 错误
