@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Account, AccountBrief, InstanceBrief } from "./types";
+import type { Account, AccountBrief, InstanceBrief, InstanceAccountStatus } from "./types";
 
 // TraeInstance 类型（与后端 TraeInstance 对应）
 export interface TraeInstance {
@@ -84,6 +84,11 @@ export async function renameInstance(instanceId: string, newName: string): Promi
   return invoke("rename_instance", { instanceId, newName });
 }
 
+// 更新实例备注
+export async function updateInstanceNote(instanceId: string, note: string | null): Promise<void> {
+  return invoke("update_instance_note", { instanceId, note });
+}
+
 // 绑定账号到实例
 export async function bindAccountToInstance(
   instanceId: string,
@@ -105,6 +110,11 @@ export async function openInstanceDataDir(instanceId: string): Promise<void> {
 // 创建实例桌面快捷方式
 export async function createInstanceShortcut(instanceId: string): Promise<string> {
   return invoke("create_instance_shortcut", { instanceId });
+}
+
+// 刷新实例账号状态（调用官方 API 获取实时额度，v1.0.21+）
+export async function refreshInstanceStatus(instanceId: string): Promise<InstanceAccountStatus | null> {
+  return invoke("refresh_instance_status", { instanceId });
 }
 
 // 更新账号 Token
