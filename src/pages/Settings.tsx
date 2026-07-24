@@ -200,7 +200,7 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
     }
     try {
       const count = await api.restoreAccountBackup();
-      onToast?.("success", `已从备份恢复 ${count} 个账号`);
+      onToast?.("success", `已恢复 ${count} 个账号，备份已清理`);
       onAccountsChanged?.();
       checkBackupStatus();
     } catch (err: any) {
@@ -430,8 +430,8 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
           {hasBackup && (
             <div className="machine-id-instance">
               <div className="machine-id-instance-name">
-                替换导入备份
-                <span className="default-badge" style={{ background: "#f59e0b" }}>可恢复</span>
+                上次替换前的备份
+                <span className="default-badge" style={{ background: "#f59e0b" }}>未使用</span>
               </div>
               <div className="machine-id-value">
                 <code>accounts.json.bak</code>
@@ -476,32 +476,6 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
         </div>
       </div>
 
-      <div className="settings-section">
-        <h3>通用设置</h3>
-        <div className="setting-item">
-          <div className="setting-info">
-            <div className="setting-label">自动刷新</div>
-            <div className="setting-desc">定时自动刷新账号使用量数据</div>
-          </div>
-          <label className="toggle">
-            <input type="checkbox" />
-            <span className="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-info">
-            <div className="setting-label">刷新间隔</div>
-            <div className="setting-desc">自动刷新的时间间隔（分钟）</div>
-          </div>
-          <select className="setting-select">
-            <option value="5">5 分钟</option>
-            <option value="10">10 分钟</option>
-            <option value="30">30 分钟</option>
-            <option value="60">60 分钟</option>
-          </select>
-        </div>
-      </div>
     </div>
   );
 }

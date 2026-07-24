@@ -103,6 +103,7 @@ impl AccountManager {
     }
 
     /// 从备份恢复账号数据（覆盖当前数据）
+    /// 恢复成功后自动删除备份文件（一次性使用）
     pub fn restore_backup(&mut self) -> Result<usize> {
         let bak_path = self.get_backup_path();
         if !bak_path.exists() {
@@ -113,7 +114,9 @@ impl AccountManager {
         let count = store.accounts.len();
         self.store = store;
         self.save_store()?;
-        println!("[INFO] 已从备份恢复 {} 个账号", count);
+        // 恢复成功后删除备份文件（一次性使用，删除失败不影响恢复结果）
+        let _ = fs::remove_file(&bak_path);
+        println!("[INFO] 已从备份恢复 {} 个账号，备份文件已清理", count);
         Ok(count)
     }
 
