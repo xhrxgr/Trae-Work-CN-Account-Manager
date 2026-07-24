@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Account, AccountBrief, InstanceBrief, InstanceAccountStatus } from "./types";
+import type { Account, AccountBrief, InstanceBrief, InstanceAccountStatus, SafeCleanItem } from "./types";
 
 // TraeInstance 类型（与后端 TraeInstance 对应）
 export interface TraeInstance {
@@ -117,6 +117,16 @@ export async function refreshInstanceStatus(instanceId: string): Promise<Instanc
   return invoke("refresh_instance_status", { instanceId });
 }
 
+// 获取实例可安全清理的候选项（v1.0.26+）
+export async function getSafeCleanItems(instanceId: string): Promise<SafeCleanItem[]> {
+  return invoke("get_safe_clean_items", { instanceId });
+}
+
+// 执行安全清理（v1.0.26+）
+export async function safeCleanInstance(instanceId: string, keys: string[]): Promise<number> {
+  return invoke("safe_clean_instance", { instanceId, keys });
+}
+
 // 更新账号 Token
 export async function updateAccountToken(accountId: string, token: string): Promise<void> {
   return invoke("update_account_token", { accountId, token });
@@ -174,6 +184,43 @@ export async function setProductMachineId(machineId: string): Promise<void> {
 // 清除 TRAE Work CN 登录状态
 export async function clearProductLoginState(): Promise<void> {
   return invoke("clear_solo_cn_login_state");
+}
+
+// ============ 实例机器码 API（v1.0.28+，设置页展示所有实例的机器码）============
+
+// 实例机器码信息
+export interface InstanceMachineIdInfo {
+  id: string;
+  name: string;
+  is_default: boolean;
+  machine_id: string;
+}
+
+// 列出所有实例的机器码
+export async function getInstanceMachineIds(): Promise<InstanceMachineIdInfo[]> {
+  return invoke("list_instance_machine_ids");
+}
+
+// 清除指定实例的登录状态（返回新机器码）
+export async function clearInstanceLoginState(instanceId: string): Promise<string> {
+  return invoke("clear_instance_login_state", { instanceId });
+}
+
+// ============ 账号备份管理 API（v1.0.28+，替换导入时自动备份）============
+
+// 检查是否有账号备份
+export async function hasAccountBackup(): Promise<boolean> {
+  return invoke("has_account_backup");
+}
+
+// 从备份恢复账号数据
+export async function restoreAccountBackup(): Promise<number> {
+  return invoke("restore_account_backup");
+}
+
+// 删除账号备份文件
+export async function deleteAccountBackup(): Promise<void> {
+  return invoke("delete_account_backup");
 }
 
 // 获取保存的 TRAE Work CN 路径

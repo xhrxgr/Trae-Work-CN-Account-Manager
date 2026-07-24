@@ -15,6 +15,46 @@ interface AccountListItemProps {
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }
 
+/// 判断 name 是否是 "用户xxx" 占位形式（无可读性）
+function isListUserIdPlaceholder(name: string): boolean {
+  return /^用户\d+$/.test(name);
+}
+
+/// 主标题（与 AccountCard 策略保持一致）：
+/// 1) 人类可读的 name → 2) note → 3) email → 4) 兜底空
+function getListDisplayName(acc: AccountListItemProps["account"]): string {
+  if (acc.name && !isListUserIdPlaceholder(acc.name)) {
+    return acc.name;
+  }
+  if (acc.note) {
+    return acc.note;
+  }
+  if (acc.email) {
+    return acc.email;
+  }
+  return "";
+}
+
+/// 副标题：与主标题**不同**才显示，否则用账号来源标签
+function getListSubtitle(acc: AccountListItemProps["account"]): string {
+  const main = getListDisplayName(acc);
+  // 1) email
+  if (acc.email && acc.email !== main) {
+    return acc.email;
+  }
+  // 2) name 是占位形式时显示 "用户xxx"
+  if (acc.name && isListUserIdPlaceholder(acc.name) && acc.name !== main) {
+    return acc.name;
+  }
+  // 3) 账号来源标签
+  if (acc.source === "browser") return "浏览器登录";
+  if (acc.source === "local") return "本地读取";
+  if (acc.source === "manual") return "手动添加";
+  // 4) 兜底：id 后 6 位
+  if (acc.id && acc.id.length >= 6) return `#${acc.id.slice(-6)}`;
+  return "";
+}
+
 export function AccountListItem({ account, selected, onSelect, onContextMenu }: AccountListItemProps) {
   const formatCreatedDate = (timestamp: number) => {
     if (!timestamp) return "-";
@@ -62,16 +102,14 @@ export function AccountListItem({ account, selected, onSelect, onContextMenu }: 
           <img src={account.avatar_url} alt={account.name} />
         ) : (
           <div className="avatar-placeholder">
-            {(account.email || account.name).charAt(0).toUpperCase()}
+            {(getListDisplayName(account) || account.name).charAt(0).toUpperCase()}
           </div>
         )}
       </div>
 
       <div className="list-item-info">
-        <span className="list-item-email">{account.email || account.name}</span>
-        <span className="list-item-id">
-          {account.note || (account.source === "browser" ? "浏览器登录" : account.source === "local" ? "本地读取" : account.name)}
-        </span>
+        <span className="list-item-email">{getListDisplayName(account)}</span>
+        <span className="list-item-id">{getListSubtitle(account)}</span>
       </div>
 
       <div className="list-item-plan">

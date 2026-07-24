@@ -11,7 +11,10 @@ interface ContextMenuProps {
   onLaunchMulti?: () => void;
   onDelete: () => void;
   onEditNote?: () => void;
+  onSafeClean?: () => void;
   isCurrent?: boolean;
+  /// 是否为默认实例（默认实例隐藏删除项）
+  isDefaultInstance?: boolean;
   contextType?: "account" | "instance";
 }
 
@@ -26,7 +29,9 @@ export function ContextMenu({
   onLaunchMulti,
   onDelete,
   onEditNote,
+  onSafeClean,
   isCurrent = false,
+  isDefaultInstance = false,
   contextType = "account",
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -90,11 +95,20 @@ export function ContextMenu({
             {contextType === "instance" ? "重命名" : "多开实例"}
           </div>
         )}
+        {onSafeClean && contextType === "instance" && (
+          <div className="context-menu-item" onClick={onSafeClean} title="清理缓存、日志、崩溃转储等可安全删除的文件">
+            <span className="icon">🧹</span>
+            安全清理
+          </div>
+        )}
         <div className="context-menu-divider" />
-        <div className="context-menu-item danger" onClick={onDelete}>
-          <span className="icon">🗑</span>
-          {contextType === "instance" ? "删除实例" : "删除账号"}
-        </div>
+        {/* 默认实例不可删除：隐藏删除项 */}
+        {!(contextType === "instance" && isDefaultInstance) && (
+          <div className="context-menu-item danger" onClick={onDelete}>
+            <span className="icon">🗑</span>
+            {contextType === "instance" ? "删除实例" : "删除账号"}
+          </div>
+        )}
       </div>
     </>
   );

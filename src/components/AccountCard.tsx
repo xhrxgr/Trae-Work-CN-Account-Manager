@@ -16,6 +16,55 @@ interface AccountCardProps {
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }
 
+/// 判断账号.name 是否是 user_id 占位形式（如 "用户80685913438" / "用户1729270590"）
+/// 这种形式没有可读性，仅作为缺省填充
+function isUserIdPlaceholder(name: string): boolean {
+  // 匹配 "用户" + 纯数字（CN 默认占位名）
+  return /^用户\d+$/.test(name);
+}
+
+/// 主标题优先级（v1.0.27+）：
+/// 1. 人类可读的 name（如 "林嘉琪"、"电话卡"）
+/// 2. 否则（CN 本地账号 name 是 "用户xxx" 占位）→ 改用 note
+/// 3. 否则用 email
+/// 4. 最后兜底用 user_id 后 6 位（避免和副标题重复）
+function getDisplayName(acc: AccountCardProps["account"]): string {
+  if (acc.name && !isUserIdPlaceholder(acc.name)) {
+    return acc.name;
+  }
+  if (acc.note) {
+    return acc.note;
+  }
+  if (acc.email) {
+    return acc.email;
+  }
+  // 最后兜底：返回 user_id 后 6 位（截断自 isCurrent 上下文）
+  return "";
+}
+
+/// 副标题：与主标题**不同**时才显示，避免重复
+/// 优先显示 user_id（CN 账号的"身份证"），有邮箱则用邮箱
+function getSubtitle(acc: AccountCardProps["account"]): string {
+  const main = getDisplayName(acc);
+  // 候选：邮箱、user_id 短形式（"用户xxx" 完整名）、不带 "用户" 前缀的 id
+  // 1) 邮箱
+  if (acc.email && acc.email !== main) {
+    return acc.email;
+  }
+  // 2) name 是占位形式时，把 "用户xxx" 作为副标题显示
+  if (acc.name && isUserIdPlaceholder(acc.name) && acc.name !== main) {
+    return acc.name;
+  }
+  // 3) 否则用账号 id 后 6 位（任何时候都不和主标题重复）
+  if (acc.id && acc.id.length >= 6) {
+    const shortId = `#${acc.id.slice(-6)}`;
+    if (shortId !== main) {
+      return shortId;
+    }
+  }
+  return "";
+}
+
 export function AccountCard({ account, selected, onSelect, onContextMenu }: AccountCardProps) {
   const formatCreatedDate = (timestamp: number) => {
     if (!timestamp) return "-";
@@ -40,7 +89,11 @@ export function AccountCard({ account, selected, onSelect, onContextMenu }: Acco
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(account.email || account.name);
+    // 优先复制有意义的标识：email > 完整 user_id > name
+    const value = account.email || account.name;
+    if (value) {
+      navigator.clipboard.writeText(value);
+    }
   };
 
   return (
@@ -63,14 +116,14 @@ export function AccountCard({ account, selected, onSelect, onContextMenu }: Acco
             <img src={account.avatar_url} alt={account.name} />
           ) : (
             <div className="avatar-placeholder">
-              {(account.email || account.name).charAt(0).toUpperCase()}
+              {(getDisplayName(account) || account.name).charAt(0).toUpperCase()}
             </div>
           )}
         </div>
 
         <div className="card-info">
           <div className="card-email">
-            <span className="email-text">{account.email || account.name}</span>
+            <span className="email-text">{getDisplayName(account)}</span>
             <button
               className="copy-btn"
               onClick={handleCopy}
@@ -82,13 +135,12 @@ export function AccountCard({ account, selected, onSelect, onContextMenu }: Acco
               </svg>
             </button>
           </div>
-          <div className="card-name">
-            {account.note ? (
-              <span className="account-note" title={account.note}>{account.note}</span>
-            ) : (
-              <span>{account.name}</span>
-            )}
-          </div>
+          {getSubtitle(account) && (
+            <div className="card-name">{getSubtitle(account)}</div>
+          )}
+          {account.note && (
+            <div className="card-note-text" title={account.note}>{account.note}</div>
+          )}
         </div>
 
         {tokenStatus !== "unknown" && (

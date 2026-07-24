@@ -92,6 +92,41 @@ impl AccountManager {
         Ok(())
     }
 
+    /// 获取备份文件路径
+    fn get_backup_path(&self) -> PathBuf {
+        self.data_path.with_extension("json.bak")
+    }
+
+    /// 检查是否有备份文件
+    pub fn has_backup(&self) -> bool {
+        self.get_backup_path().exists()
+    }
+
+    /// 从备份恢复账号数据（覆盖当前数据）
+    pub fn restore_backup(&mut self) -> Result<usize> {
+        let bak_path = self.get_backup_path();
+        if !bak_path.exists() {
+            return Err(anyhow!("没有找到备份文件"));
+        }
+        let content = fs::read_to_string(&bak_path)?;
+        let store: AccountStore = serde_json::from_str(&content)?;
+        let count = store.accounts.len();
+        self.store = store;
+        self.save_store()?;
+        println!("[INFO] 已从备份恢复 {} 个账号", count);
+        Ok(count)
+    }
+
+    /// 删除备份文件
+    pub fn delete_backup(&self) -> Result<()> {
+        let bak_path = self.get_backup_path();
+        if bak_path.exists() {
+            fs::remove_file(&bak_path)?;
+            println!("[INFO] 已删除账号备份文件");
+        }
+        Ok(())
+    }
+
     /// 添加账号（通过 cookies）
     pub async fn add_account(&mut self, cookies: String) -> Result<Account> {
         let mut client = TraeApiClient::new(&cookies)?;
@@ -558,7 +593,13 @@ impl AccountManager {
         }
 
         let count = if overwrite {
-            // 替换模式：清空现有账号，直接导入
+            // 替换模式：先备份当前数据到 .bak（保险措施，可恢复）
+            if self.data_path.exists() {
+                let bak_path = self.data_path.with_extension("json.bak");
+                let _ = fs::copy(&self.data_path, &bak_path);
+                println!("[INFO] 已备份旧账号数据到 {}", bak_path.display());
+            }
+            // 清空现有账号，直接导入
             self.store.accounts = accounts.clone();
             // 重置活跃账号为第一个
             self.store.active_account_id = accounts.first().map(|a| a.id.clone());

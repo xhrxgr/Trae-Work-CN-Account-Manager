@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "../api";
-import type { InstanceBrief, AccountBrief } from "../types";
+import type { InstanceBrief, AccountBrief, SafeCleanItem } from "../types";
 import { InstanceCard } from "../components/InstanceCard";
 import { CreateInstanceModal } from "../components/CreateInstanceModal";
 import { ContextMenu } from "../components/ContextMenu";
@@ -46,6 +46,16 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
 
   const [accountSelectModal, setAccountSelectModal] = useState<{
     instanceId: string;
+  } | null>(null);
+
+  // 安全清理弹窗（v1.0.26+）
+  const [safeCleanModal, setSafeCleanModal] = useState<{
+    instanceId: string;
+    instanceName: string;
+    items: SafeCleanItem[];
+    selected: Set<string>;
+    loading: boolean;
+    cleaning: boolean;
   } | null>(null);
 
   const loadInstances = useCallback(async () => {
@@ -199,6 +209,65 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     }
   };
 
+  // 安全清理（v1.0.26+）
+  const handleSafeClean = async (instanceId: string) => {
+    const inst = instances.find((i) => i.id === instanceId);
+    if (!inst) return;
+    setSafeCleanModal({
+      instanceId,
+      instanceName: inst.name,
+      items: [],
+      selected: new Set(),
+      loading: true,
+      cleaning: false,
+    });
+    try {
+      const items = await api.getSafeCleanItems(instanceId);
+      // 默认勾选全部项（全部为 100% 安全可删）
+      const selected = new Set(items.map((it) => it.key));
+      setSafeCleanModal({
+        instanceId,
+        instanceName: inst.name,
+        items,
+        selected,
+        loading: false,
+        cleaning: false,
+      });
+    } catch (err: any) {
+      addToast("error", err.message || "获取清理项失败");
+      setSafeCleanModal(null);
+    }
+  };
+
+  const handleSafeCleanToggle = (key: string) => {
+    setSafeCleanModal((prev) => {
+      if (!prev) return prev;
+      const next = new Set(prev.selected);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, selected: next };
+    });
+  };
+
+  const handleSafeCleanSubmit = async () => {
+    if (!safeCleanModal) return;
+    const keys = Array.from(safeCleanModal.selected);
+    if (keys.length === 0) {
+      addToast("warning", "请至少勾选一项");
+      return;
+    }
+    setSafeCleanModal((prev) => (prev ? { ...prev, cleaning: true } : prev));
+    try {
+      const freed = await api.safeCleanInstance(safeCleanModal.instanceId, keys);
+      addToast("success", `已清理，释放 ${(freed / 1024 / 1024).toFixed(1)} MB`);
+      setSafeCleanModal(null);
+      await loadInstances();
+    } catch (err: any) {
+      addToast("error", err.message || "清理失败");
+      setSafeCleanModal((prev) => (prev ? { ...prev, cleaning: false } : prev));
+    }
+  };
+
   // 切换账号
   const handleSwitchAccount = (instanceId: string) => {
     setAccountSelectModal({ instanceId });
@@ -224,16 +293,16 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     <div className="instances-page">
       <div className="page-header">
         <h1>实例管理</h1>
-        <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
-          + 创建实例
+        <button className="add-btn" onClick={() => setShowCreateModal(true)}>
+          <span>+</span> 创建实例
         </button>
       </div>
 
       {instances.length === 0 ? (
         <div className="empty-state">
           <p>暂无实例</p>
-          <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
-            创建第一个实例
+          <button className="add-btn" onClick={() => setShowCreateModal(true)}>
+            <span>+</span> 创建第一个实例
           </button>
         </div>
       ) : (
@@ -298,6 +367,13 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
             handleDelete(contextMenu.instanceId);
             setContextMenu(null);
           }}
+          onSafeClean={() => {
+            handleSafeClean(contextMenu.instanceId);
+            setContextMenu(null);
+          }}
+          isDefaultInstance={
+            instances.find((i) => i.id === contextMenu.instanceId)?.is_default ?? false
+          }
           isCurrent={false}
         />
       )}
@@ -389,6 +465,77 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
               >
                 <div className="muted">不绑定（首次启动手动登录）</div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {safeCleanModal && (
+        <div className="modal-overlay" onClick={safeCleanModal.cleaning ? undefined : () => setSafeCleanModal(null)}>
+          <div className="modal-content safe-clean-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>安全清理 - {safeCleanModal.instanceName}</h2>
+            <p className="safe-clean-hint">
+              以下均为可安全删除的缓存、日志、崩溃转储，删除后下次启动自动重建。
+              不影响登录信息、用户设置、插件数据、聊天记录。
+              <br />
+              <strong>实例运行中时无法清理，请先关闭实例。</strong>
+            </p>
+            {safeCleanModal.loading ? (
+              <p>正在扫描可清理项...</p>
+            ) : (
+              <>
+                <div className="safe-clean-list">
+                  {safeCleanModal.items.map((item) => (
+                    <label key={item.key} className="safe-clean-item" title={item.description}>
+                      <div className="safe-clean-item-main">
+                        <input
+                          type="checkbox"
+                          checked={safeCleanModal.selected.has(item.key)}
+                          onChange={() => handleSafeCleanToggle(item.key)}
+                          disabled={safeCleanModal.cleaning}
+                        />
+                        <div className="safe-clean-item-info">
+                          <div className="safe-clean-item-label">
+                            {item.label}
+                            <span className="safe-clean-item-path">{item.path}</span>
+                          </div>
+                          <div className="safe-clean-item-desc">{item.description}</div>
+                        </div>
+                      </div>
+                      <div className="safe-clean-item-size">
+                        {item.size_bytes > 0
+                          ? `${(item.size_bytes / 1024 / 1024).toFixed(1)} MB`
+                          : "0 B"}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="safe-clean-total">
+                  预计释放：
+                  {(() => {
+                    const total = safeCleanModal.items
+                      .filter((it) => safeCleanModal.selected.has(it.key))
+                      .reduce((sum, it) => sum + it.size_bytes, 0);
+                    return `${(total / 1024 / 1024).toFixed(1)} MB`;
+                  })()}
+                </div>
+              </>
+            )}
+            <div className="modal-actions">
+              <button
+                className="btn-secondary"
+                onClick={() => setSafeCleanModal(null)}
+                disabled={safeCleanModal.cleaning}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleSafeCleanSubmit}
+                disabled={safeCleanModal.loading || safeCleanModal.cleaning || safeCleanModal.selected.size === 0}
+              >
+                {safeCleanModal.cleaning ? "清理中..." : "删除选中项"}
+              </button>
             </div>
           </div>
         </div>

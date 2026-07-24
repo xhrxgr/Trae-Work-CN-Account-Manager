@@ -82,3 +82,13 @@ export interface InstanceBrief {
 export interface ApiError {
   message: string;
 }
+
+// 安全清理候选项（v1.0.26+）
+export interface SafeCleanItem {
+  key: string;          // 唯一标识
+  label: string;        // 显示名称
+  path: string;         // 相对 data-dir 的路径
+  category: string;     // "cache" | "crash" | "logs"
+  size_bytes: number;   // 当前占用字节数
+  description: string;  // 说明：删什么、为何安全
+}

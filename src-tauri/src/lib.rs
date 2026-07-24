@@ -226,6 +226,22 @@ async fn refresh_instance_status(instance_id: String, state: State<'_, AppState>
     }
 }
 
+/// 获取实例可安全清理的候选项（v1.0.26+）
+/// 返回 100% 无害的缓存/日志/崩溃转储列表，每项含当前大小，供前端弹窗勾选
+#[tauri::command]
+async fn get_safe_clean_items(instance_id: String, state: State<'_, AppState>) -> Result<Vec<instance::instance_manager::SafeCleanItem>> {
+    let manager = state.instance_manager.lock().await;
+    manager.get_safe_clean_items(&instance_id).map_err(Into::into)
+}
+
+/// 执行安全清理（v1.0.26+）
+/// 删除用户勾选的候选项，返回释放的字节数。实例运行中时拒绝清理
+#[tauri::command]
+async fn safe_clean_instance(instance_id: String, keys: Vec<String>, state: State<'_, AppState>) -> Result<u64> {
+    let mut manager = state.instance_manager.lock().await;
+    manager.safe_clean_instance(&instance_id, &keys).map_err(Into::into)
+}
+
 /// 导出所有账号为 JSON 字符串
 #[tauri::command]
 async fn export_accounts(state: State<'_, AppState>) -> Result<String> {
@@ -259,6 +275,27 @@ async fn import_accounts_from_file(file_path: String, overwrite: bool, state: St
         .map_err(|e| anyhow::anyhow!("读取导入文件失败: {}", e))?;
     let mut manager = state.account_manager.lock().await;
     manager.import_accounts(&json, overwrite).map_err(Into::into)
+}
+
+/// 检查是否有账号备份（替换导入时自动创建）
+#[tauri::command]
+async fn has_account_backup(state: State<'_, AppState>) -> Result<bool> {
+    let manager = state.account_manager.lock().await;
+    Ok(manager.has_backup())
+}
+
+/// 从备份恢复账号数据
+#[tauri::command]
+async fn restore_account_backup(state: State<'_, AppState>) -> Result<usize> {
+    let mut manager = state.account_manager.lock().await;
+    manager.restore_backup().map_err(Into::into)
+}
+
+/// 删除账号备份文件
+#[tauri::command]
+async fn delete_account_backup(state: State<'_, AppState>) -> Result<()> {
+    let manager = state.account_manager.lock().await;
+    manager.delete_backup().map_err(Into::into)
 }
 
 /// 获取账号使用量
@@ -325,6 +362,52 @@ async fn set_solo_cn_machine_id(machine_id: String) -> Result<()> {
 #[tauri::command]
 async fn clear_solo_cn_login_state() -> Result<()> {
     machine::clear_solo_cn_login_state().map_err(Into::into)
+}
+
+/// 实例机器码信息（用于设置页展示所有实例的机器码）
+#[derive(serde::Serialize)]
+struct InstanceMachineIdInfo {
+    id: String,
+    name: String,
+    is_default: bool,
+    machine_id: String,
+}
+
+/// 列出所有实例的机器码（设置页用，每个实例独立显示）
+#[tauri::command]
+async fn list_instance_machine_ids(state: State<'_, AppState>) -> Result<Vec<InstanceMachineIdInfo>> {
+    // 锁内快速拿基本信息
+    let entries: Vec<(String, String, bool, String)> = {
+        let account_manager = state.account_manager.lock().await;
+        let manager = state.instance_manager.lock().await;
+        let briefs = manager.list_instances_basic(&account_manager);
+        briefs.iter()
+            .map(|b| (b.id.clone(), b.name.clone(), b.is_default, b.data_dir.clone()))
+            .collect()
+    };
+    // 锁外读 machineid 文件（不阻塞其他操作）
+    let result: Vec<InstanceMachineIdInfo> = entries.iter().map(|(id, name, is_default, data_dir)| {
+        let machine_id = machine::read_machineid_from_dir(data_dir).unwrap_or_default();
+        InstanceMachineIdInfo {
+            id: id.clone(),
+            name: name.clone(),
+            is_default: *is_default,
+            machine_id,
+        }
+    }).collect();
+    Ok(result)
+}
+
+/// 清除指定实例的登录状态（重置机器码 + 清除登录信息 + 清缓存）
+#[tauri::command]
+async fn clear_instance_login_state(instance_id: String, state: State<'_, AppState>) -> Result<String> {
+    let data_dir = {
+        let manager = state.instance_manager.lock().await;
+        manager.get_instance_data_dir(&instance_id)
+            .ok_or_else(|| anyhow::anyhow!("实例不存在"))?
+    };
+    let new_machine_id = machine::clear_login_state_for_dir(&data_dir)?;
+    Ok(new_machine_id)
 }
 
 /// 获取保存的 Trae Solo CN 路径
@@ -398,10 +481,15 @@ pub fn run() {
             open_instance_data_dir,
             create_instance_shortcut,
             refresh_instance_status,
+            get_safe_clean_items,
+            safe_clean_instance,
             export_accounts,
             export_accounts_to_file,
             import_accounts,
             import_accounts_from_file,
+            has_account_backup,
+            restore_account_backup,
+            delete_account_backup,
             get_account_usage,
             update_account_token,
             get_machine_id,
@@ -415,6 +503,8 @@ pub fn run() {
             get_solo_cn_machine_id,
             set_solo_cn_machine_id,
             clear_solo_cn_login_state,
+            list_instance_machine_ids,
+            clear_instance_login_state,
             get_solo_cn_path,
             set_solo_cn_path,
             scan_solo_cn_path,

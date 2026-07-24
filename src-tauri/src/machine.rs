@@ -875,17 +875,28 @@ pub fn switch_product_account(info: &TraeLoginInfo, machine_id: Option<&str>, pr
     Ok(())
 }
 
-/// 清除产品登录状态（让产品变成全新安装状态）
-pub fn clear_product_login_state(product_type: ProductType) -> Result<()> {
-    let data_path = get_product_data_path(product_type)?;
-    let display_name = product_type.display_name();
+/// 从任意 data-dir 读取机器码（适用于所有实例，不仅仅是默认实例）
+pub fn read_machineid_from_dir(data_dir: &str) -> Result<String> {
+    let machine_id_path = PathBuf::from(data_dir).join("machineid");
+    if !machine_id_path.exists() {
+        return Err(anyhow!("机器码文件不存在"));
+    }
+    let content = fs::read_to_string(&machine_id_path)
+        .map_err(|e| anyhow!("读取机器码失败: {}", e))?;
+    Ok(content.trim().to_string())
+}
+
+/// 清除任意 data-dir 的登录状态（重置机器码 + 清除 storage.json 登录信息 + 清缓存）
+/// 返回新生成的机器码
+pub fn clear_login_state_for_dir(data_dir: &str) -> Result<String> {
+    let data_path = PathBuf::from(data_dir);
 
     // 1. 生成新的机器码
     let new_machine_id = generate_machine_guid();
     let machine_id_path = data_path.join("machineid");
     fs::write(&machine_id_path, &new_machine_id)
-        .map_err(|e| anyhow!("重置 {} 机器码失败: {}", display_name, e))?;
-    println!("[INFO] 已重置 {} 机器码: {}", display_name, new_machine_id);
+        .map_err(|e| anyhow!("重置机器码失败: {}", e))?;
+    println!("[INFO] 已重置机器码: {}", new_machine_id);
 
     // 2. 清除 storage.json 中的登录信息
     let storage_path = data_path.join("User").join("globalStorage").join("storage.json");
@@ -914,9 +925,8 @@ pub fn clear_product_login_state(product_type: ProductType) -> Result<()> {
         }
     }
 
-    // 3-9. 清除各种缓存数据（保留 state.vscdb 用户 IDE 设置）
-    // 注意：state.vscdb 和 state.vscdb.backup 存储用户 IDE 设置（如"命令运行方式"），
-    //       删除会导致设置被重置为默认值，登录信息在 storage.json 中，无需删除 state.vscdb
+    // 3. 清除各种缓存数据（保留 state.vscdb 用户 IDE 设置）
+    //    state.vscdb 存储用户 IDE 设置，删除会导致设置被重置为默认值
     let paths_to_clear = [
         ("Local State", false),
         ("IndexedDB", true),
@@ -938,6 +948,14 @@ pub fn clear_product_login_state(product_type: ProductType) -> Result<()> {
         }
     }
 
+    Ok(new_machine_id)
+}
+
+/// 清除产品登录状态（让产品变成全新安装状态）
+pub fn clear_product_login_state(product_type: ProductType) -> Result<()> {
+    let data_path = get_product_data_path(product_type)?;
+    let dir_str = data_path.to_str().ok_or_else(|| anyhow!("路径包含无效 UTF-8"))?;
+    clear_login_state_for_dir(dir_str)?;
     Ok(())
 }
 

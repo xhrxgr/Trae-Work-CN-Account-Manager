@@ -173,11 +173,12 @@ export function InstanceCard({ instance, onLaunch, onContextMenu, onRefreshStatu
               <img src={instance.bound_account_avatar} alt="" className="avatar" />
             )}
             <div>
-              <div>
-                {instance.bound_account_note
-                  ? `${instance.bound_account_name} · ${instance.bound_account_note}`
-                  : instance.bound_account_name}
+              <div className="instance-account-name">
+                {instance.bound_account_name}
               </div>
+              {instance.bound_account_note && (
+                <div className="instance-account-note">{instance.bound_account_note}</div>
+              )}
               <div className="muted">
                 {instance.bound_account_email || "无邮箱"}
                 {instance.account_status && (

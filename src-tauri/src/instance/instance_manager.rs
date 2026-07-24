@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -10,6 +11,24 @@ use crate::machine;
 /// 磁盘占用缓存条目: (时间戳秒, 大小字节)
 /// 缓存有效期 5 分钟，避免每次轮询都递归遍历整个 data_dir
 const DISK_CACHE_TTL_SECS: i64 = 300;
+
+/// 安全清理候选项：仅包含 100% 删除无害的文件/目录（均为缓存、日志、崩溃转储，可自动重建）
+/// 用户可在弹窗中勾选要删除的项
+#[derive(Serialize, Clone)]
+pub struct SafeCleanItem {
+    /// 唯一标识，传回后端用于指定删除目标
+    pub key: String,
+    /// 显示名称
+    pub label: String,
+    /// 相对于 data-dir 的路径
+    pub path: String,
+    /// 分类: "cache"(缓存) | "crash"(崩溃转储) | "logs"(日志)
+    pub category: String,
+    /// 当前占用字节数
+    pub size_bytes: u64,
+    /// 说明：删什么、为何安全
+    pub description: String,
+}
 
 /// 实例管理器
 pub struct InstanceManager {
@@ -429,6 +448,120 @@ impl InstanceManager {
         self.store.instances.iter()
             .find(|i| i.id == id)
             .map(|i| i.data_dir.clone())
+    }
+
+    /// 获取实例可安全清理的候选项列表（仅 100% 无害的缓存/日志/崩溃转储）
+    /// 每项包含当前占用大小，供前端弹窗展示并让用户勾选
+    pub fn get_safe_clean_items(&self, id: &str) -> Result<Vec<SafeCleanItem>> {
+        let data_dir = self.store.instances.iter()
+            .find(|i| i.id == id)
+            .map(|i| i.data_dir.clone())
+            .ok_or_else(|| anyhow!("实例不存在"))?;
+
+        // 候选清单：(key, label, 相对路径, 分类, 说明)
+        // 以下均为 TRAE/VSCode/Chromium 运行时自动重建的缓存、日志、崩溃转储，
+        // 删除后下次启动会重新生成，不影响登录信息、用户设置、插件数据、聊天记录
+        let candidates: &[(&str, &str, &str, &str, &str)] = &[
+            ("logs", "运行日志", "logs", "logs",
+             "每次启动 TRAE 时重新生成。包含渲染进程、扩展宿主、网络、MCP 等运行日志"),
+            ("cache_cache", "网络缓存", "Cache", "cache",
+             "Chromium 网络磁盘缓存，启动时自动重建"),
+            ("cache_code_cache", "代码缓存", "Code Cache", "cache",
+             "V8 编译代码缓存，启动时自动重建"),
+            ("cache_cached_data", "缓存数据", "CachedData", "cache",
+             "VSCode 缓存的 GPU 加速数据，启动时自动重建（通常占空间最大）"),
+            ("cache_gpu", "GPU 缓存", "GPUCache", "cache",
+             "Chromium GPU 缓存，启动时自动重建"),
+            ("cache_dawn_graphite", "Dawn Graphite 缓存", "DawnGraphiteCache", "cache",
+             "Dawn GPU 渲染缓存，启动时自动重建"),
+            ("cache_dawn_webgpu", "WebGPU 缓存", "DawnWebGPUCache", "cache",
+             "WebGPU 缓存，启动时自动重建"),
+            ("cache_video_decode", "视频解码统计", "VideoDecodeStats", "cache",
+             "视频解码统计信息，启动时自动重建"),
+            ("crash_reports", "崩溃转储", "Crashpad/reports", "crash",
+             "已收集的崩溃转储文件 (.dmp)，仅供排查问题，删除无任何影响"),
+        ];
+
+        let base = PathBuf::from(&data_dir);
+        let mut items = Vec::new();
+        for (key, label, rel, category, desc) in candidates {
+            let p = base.join(rel);
+            let size = if p.exists() { machine::get_dir_size(p.to_str().unwrap_or("")) } else { 0 };
+            items.push(SafeCleanItem {
+                key: key.to_string(),
+                label: label.to_string(),
+                path: rel.to_string(),
+                category: category.to_string(),
+                size_bytes: size,
+                description: desc.to_string(),
+            });
+        }
+        Ok(items)
+    }
+
+    /// 执行安全清理：删除用户勾选的候选项，返回释放的总字节数
+    /// 若实例正在运行则拒绝（文件可能被占用），要求用户先关闭实例
+    pub fn safe_clean_instance(&mut self, id: &str, keys: &[String]) -> Result<u64> {
+        let data_dir = self.store.instances.iter()
+            .find(|i| i.id == id)
+            .map(|i| i.data_dir.clone())
+            .ok_or_else(|| anyhow!("实例不存在"))?;
+
+        // 检查实例是否运行中（运行时缓存文件可能被锁，拒绝清理）
+        let (is_running, _) = machine::is_instance_running(&data_dir);
+        if is_running {
+            return Err(anyhow!("实例正在运行中，请先关闭实例再清理（运行时缓存文件可能被占用）"));
+        }
+
+        // 候选 key → 相对路径映射（与 get_safe_clean_items 保持一致）
+        let key_to_path: &[(&str, &str)] = &[
+            ("logs", "logs"),
+            ("cache_cache", "Cache"),
+            ("cache_code_cache", "Code Cache"),
+            ("cache_cached_data", "CachedData"),
+            ("cache_gpu", "GPUCache"),
+            ("cache_dawn_graphite", "DawnGraphiteCache"),
+            ("cache_dawn_webgpu", "DawnWebGPUCache"),
+            ("cache_video_decode", "VideoDecodeStats"),
+            ("crash_reports", "Crashpad/reports"),
+        ];
+        let base = PathBuf::from(&data_dir);
+        let mut freed: u64 = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for key in keys {
+            let rel = match key_to_path.iter().find(|(k, _)| k == key) {
+                Some((_, r)) => *r,
+                None => {
+                    errors.push(format!("未知清理项: {}", key));
+                    continue;
+                }
+            };
+            let p = base.join(rel);
+            if !p.exists() {
+                continue; // 不存在则跳过
+            }
+            // 先计算大小（删除后就拿不到了）
+            let size = machine::get_dir_size(p.to_str().unwrap_or(""));
+            match fs::remove_dir_all(&p) {
+                Ok(_) => {
+                    freed += size;
+                    println!("[INFO] 安全清理: 已删除 {} ({} 字节)", p.display(), size);
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", rel, e));
+                }
+            }
+        }
+
+        // 失效该实例的磁盘缓存，让下次轮询重新计算真实大小
+        self.invalidate_disk_cache(&data_dir);
+
+        if !errors.is_empty() {
+            // 部分失败也返回已释放的大小，但附带错误信息
+            return Err(anyhow!("已释放 {} 字节，但部分项删除失败:\n{}", freed, errors.join("\n")));
+        }
+        Ok(freed)
     }
 
     /// 创建实例

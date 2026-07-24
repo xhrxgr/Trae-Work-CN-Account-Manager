@@ -868,6 +868,17 @@ body {
   color: var(--text-muted);
 }
 
+/* 账号备注：账号名下方独立区块，灰色小字，支持换行 */
+.card-note-text {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.75;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .card-status {
   padding: 6px 12px;
   border-radius: var(--radius-lg);
@@ -2956,6 +2967,35 @@ body {
   color: var(--accent);
 }
 
+/* 实例机器码子卡片（v1.0.28+） */
+.machine-id-instance {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.machine-id-instance:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.machine-id-instance-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.machine-id-instance .machine-id-value {
+  margin-bottom: 10px;
+}
+
+.machine-id-instance .machine-id-actions {
+  margin-bottom: 0;
+}
+
 /* Toggle Switch */
 .toggle {
   position: relative;
@@ -4658,6 +4698,23 @@ body {
   border-radius: 50%;
 }
 
+/* 实例卡片：账号名（与备注区分的字体） */
+.instance-account-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 实例卡片：账号备注（账号名下方独立行，灰色小字，支持换行，不与用户名同行、不用·号） */
+.instance-account-note {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.75;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .instance-disk {
   font-size: 12px;
   color: var(--text-muted);
@@ -4747,4 +4804,103 @@ body {
   font-size: 12px;
   color: var(--text-muted);
   margin: 12px 0;
+}
+
+/* ===== 安全清理弹窗（v1.0.26+） ===== */
+.safe-clean-modal {
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.safe-clean-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+}
+
+.safe-clean-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.safe-clean-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-glass-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.safe-clean-item:hover {
+  background: var(--accent-bg);
+}
+
+.safe-clean-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.safe-clean-item-main input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.safe-clean-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.safe-clean-item-label {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.safe-clean-item-path {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.safe-clean-item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.safe-clean-item-size {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.safe-clean-total {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  text-align: right;
 }
