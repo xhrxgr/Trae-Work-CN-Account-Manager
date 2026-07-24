@@ -71,6 +71,7 @@ export interface InstanceBrief {
   machine_id: string | null;
   created_at: number;
   last_launched_at: number;  // 上次启动时间（UTC 秒），0=从未启动
+  last_closed_at: number;    // 上次关闭时间（UTC 秒），0=从未检测到关闭
   disk_usage: number;
   is_running: boolean;
   pid: number | null;

@@ -29,6 +29,11 @@ pub struct TraeInstance {
     /// 由 launch_instance 调用时更新（包括从快捷方式启动的检测、在管理器中点启动）
     #[serde(default)]
     pub last_launched_at: i64,
+    /// 上次关闭时间（UTC 时间戳秒，0 表示从未检测到关闭）
+    /// 由 list_instances 轮询时检测「运行→停止」转换自动记录
+    /// 注意：检测基于 15 秒轮询周期，关闭时间有最多 15 秒的滞后
+    #[serde(default)]
+    pub last_closed_at: i64,
 }
 
 /// 实例列表存储结构
@@ -61,6 +66,9 @@ pub struct InstanceBrief {
     /// 上次启动时间（UTC 时间戳秒，0 表示从未启动）
     #[serde(default)]
     pub last_launched_at: i64,
+    /// 上次关闭时间（UTC 时间戳秒，0 表示从未检测到关闭）
+    #[serde(default)]
+    pub last_closed_at: i64,
     /// 磁盘占用（字节）
     pub disk_usage: u64,
     /// 是否正在运行
@@ -94,6 +102,7 @@ impl TraeInstance {
             created_at: now,
             updated_at: now,
             last_launched_at: 0,
+            last_closed_at: 0,
         }
     }
 }

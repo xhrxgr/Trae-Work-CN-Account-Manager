@@ -45,6 +45,17 @@ function formatLaunchTime(seconds: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")} 启动`;
 }
 
+function formatCloseTime(seconds: number): string {
+  if (seconds <= 0) return "未记录关闭";
+  const date = new Date(seconds * 1000);
+  const now = Date.now();
+  const diff = now - seconds * 1000;
+  if (diff < 60 * 1000) return "刚刚关闭";
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)} 分钟前关闭`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)} 小时前关闭`;
+  return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")} 关闭`;
+}
+
 function formatResetTime(seconds: number): string {
   if (seconds <= 0) return "";
   const date = new Date(seconds * 1000);
@@ -210,7 +221,7 @@ export function InstanceCard({ instance, onLaunch, onContextMenu, onRefreshStatu
         )}
 
         <div className="instance-disk">
-          磁盘: {formatDiskUsage(instance.disk_usage)} · {formatLaunchTime(instance.last_launched_at)}
+          磁盘: {formatDiskUsage(instance.disk_usage)} · {formatLaunchTime(instance.last_launched_at)} · {formatCloseTime(instance.last_closed_at)}
         </div>
       </div>
 
