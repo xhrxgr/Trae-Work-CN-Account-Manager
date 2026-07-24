@@ -127,6 +127,34 @@ function App() {
     return () => clearInterval(interval);
   }, [loadAccounts]);
 
+  // 自动刷新账号资料（从云端获取最新用户名，v1.0.31+）
+  useEffect(() => {
+    // 启动时刷新（延迟 3 秒，避免与 Token 刷新并发抢锁）
+    const timer = setTimeout(() => {
+      api.refreshAllProfiles().then((changed) => {
+        if (changed.length > 0) {
+          console.log(`[INFO] 启动时刷新了 ${changed.length} 个账号的用户名`);
+          loadAccounts();
+        }
+      }).catch(console.error);
+    }, 3000);
+
+    // 每30分钟刷新一次（与 Token 刷新错开）
+    const interval = setInterval(() => {
+      api.refreshAllProfiles().then((changed) => {
+        if (changed.length > 0) {
+          console.log(`[INFO] 定时刷新了 ${changed.length} 个账号的用户名`);
+          loadAccounts();
+        }
+      }).catch(console.error);
+    }, 30 * 60 * 1000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [loadAccounts]);
+
   // 添加账号
   const handleAddAccount = async (token: string, cookies?: string) => {
     await api.addAccountByToken(token, cookies, "manual");

@@ -442,6 +442,20 @@ async fn refresh_all_tokens(state: State<'_, AppState>) -> Result<Vec<String>> {
     manager.refresh_all_tokens().await.map_err(Into::into)
 }
 
+/// 刷新单个账号资料（从云端获取最新用户名，v1.0.31+）
+#[tauri::command]
+async fn refresh_account_profile(account_id: String, state: State<'_, AppState>) -> Result<bool> {
+    let mut manager = state.account_manager.lock().await;
+    manager.refresh_account_profile(&account_id).await.map_err(Into::into)
+}
+
+/// 批量刷新所有账号资料（v1.0.31+，启动时 + 定期轮询调用）
+#[tauri::command]
+async fn refresh_all_profiles(state: State<'_, AppState>) -> Result<Vec<String>> {
+    let mut manager = state.account_manager.lock().await;
+    Ok(manager.refresh_all_profiles().await)
+}
+
 /// 浏览器登录
 #[tauri::command]
 async fn start_browser_login(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<()> {
@@ -498,6 +512,8 @@ pub fn run() {
             bind_account_machine_id,
             refresh_token,
             refresh_all_tokens,
+            refresh_account_profile,
+            refresh_all_profiles,
             start_browser_login,
             read_solo_cn_account,
             get_solo_cn_machine_id,

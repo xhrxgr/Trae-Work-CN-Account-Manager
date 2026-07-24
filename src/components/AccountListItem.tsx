@@ -15,40 +15,18 @@ interface AccountListItemProps {
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }
 
-/// 判断 name 是否是 "用户xxx" 占位形式（无可读性）
-function isListUserIdPlaceholder(name: string): boolean {
-  return /^用户\d+$/.test(name);
-}
-
-/// 主标题（与 AccountCard 策略保持一致，v1.0.30 修复空标题）：
-/// 1) 人类可读的 name → 2) note → 3) email → 4) 兜底用占位 name
+/// 主标题：固定显示云端获取的 account.name（v1.0.31+）
+/// 启动时 + 定期轮询自动调 API 刷新 screen_name
 function getListDisplayName(acc: AccountListItemProps["account"]): string {
-  if (acc.name && !isListUserIdPlaceholder(acc.name)) {
-    return acc.name;
-  }
-  if (acc.note) {
-    return acc.note;
-  }
-  if (acc.email) {
-    return acc.email;
-  }
-  // 兜底：用占位 name，总比空标题好
   return acc.name || "";
 }
 
-/// 副标题：与主标题**不同**才显示，否则用账号来源标签
-/// v1.0.30: 去掉 #hex-id 后缀（UUID 后 6 位像颜色值，用户反馈看不懂）
+/// 副标题：email 优先，其次账号来源标签
 function getListSubtitle(acc: AccountListItemProps["account"]): string {
   const main = getListDisplayName(acc);
-  // 1) email
   if (acc.email && acc.email !== main) {
     return acc.email;
   }
-  // 2) name 是占位形式时显示 "用户xxx"
-  if (acc.name && isListUserIdPlaceholder(acc.name) && acc.name !== main) {
-    return acc.name;
-  }
-  // 3) 账号来源标签
   if (acc.source === "browser") return "浏览器登录";
   if (acc.source === "local") return "本地读取";
   if (acc.source === "manual") return "手动添加";

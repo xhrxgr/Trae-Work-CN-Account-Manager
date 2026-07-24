@@ -245,6 +245,18 @@ export async function refreshAllTokens(): Promise<string[]> {
   return invoke("refresh_all_tokens");
 }
 
+// ============ 账号资料刷新 API（v1.0.31+）===========
+
+// 刷新单个账号资料（从云端获取最新用户名）
+export async function refreshAccountProfile(accountId: string): Promise<boolean> {
+  return invoke("refresh_account_profile", { accountId });
+}
+
+// 批量刷新所有账号资料（启动时 + 定期轮询调用）
+export async function refreshAllProfiles(): Promise<string[]> {
+  return invoke("refresh_all_profiles");
+}
+
 // ============ 账号导入导出 ============
 
 // 导出所有账号为 JSON 字符串

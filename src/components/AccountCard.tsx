@@ -16,44 +16,17 @@ interface AccountCardProps {
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }
 
-/// 判断账号.name 是否是 user_id 占位形式（如 "用户80685913438" / "用户1729270590"）
-/// 这种形式没有可读性，仅作为缺省填充
-function isUserIdPlaceholder(name: string): boolean {
-  // 匹配 "用户" + 纯数字（CN 默认占位名）
-  return /^用户\d+$/.test(name);
-}
-
-/// 主标题优先级（v1.0.27+，v1.0.30 修复空标题）：
-/// 1. 人类可读的 name（如 "林嘉琪"、"电话卡"）
-/// 2. 否则（CN 本地账号 name 是 "用户xxx" 占位）→ 改用 note
-/// 3. 否则用 email
-/// 4. 最后兜底用占位 name（"用户xxx" 总比空好）
+/// 主标题：固定显示云端获取的 account.name（v1.0.31+）
+/// 启动时 + 定期轮询自动调 API 刷新 screen_name，用户改名后可同步
 function getDisplayName(acc: AccountCardProps["account"]): string {
-  if (acc.name && !isUserIdPlaceholder(acc.name)) {
-    return acc.name;
-  }
-  if (acc.note) {
-    return acc.note;
-  }
-  if (acc.email) {
-    return acc.email;
-  }
-  // 兜底：用占位 name（"用户xxx"），总比空标题好
   return acc.name || "";
 }
 
-/// 副标题：与主标题**不同**时才显示，避免重复
-/// 优先显示 email，其次占位 name
-/// v1.0.30: 去掉 #hex-id 后缀（UUID 后 6 位像颜色值，用户反馈看不懂）
+/// 副标题：显示 email（如果有且与主标题不同）
 function getSubtitle(acc: AccountCardProps["account"]): string {
   const main = getDisplayName(acc);
-  // 1) 邮箱
   if (acc.email && acc.email !== main) {
     return acc.email;
-  }
-  // 2) name 是占位形式时，如果主标题用的是 note/email，把 "用户xxx" 作为副标题
-  if (acc.name && isUserIdPlaceholder(acc.name) && acc.name !== main) {
-    return acc.name;
   }
   return "";
 }

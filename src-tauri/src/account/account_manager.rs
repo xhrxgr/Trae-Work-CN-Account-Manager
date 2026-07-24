@@ -707,6 +707,81 @@ impl AccountManager {
         Ok(())
     }
 
+    /// 刷新账号资料（从云端获取最新 screen_name 并更新本地 name）
+    /// 用 jwt_token 调 GetUserInfo API，失败则保持原 name 不变
+    /// v1.0.31+: 主标题固定显示云端用户名，用户改名后可同步
+    pub async fn refresh_account_profile(&mut self, account_id: &str) -> Result<bool> {
+        let account = self
+            .store
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| anyhow!("账号不存在"))?
+            .clone();
+
+        let token = account.jwt_token.as_ref()
+            .ok_or_else(|| anyhow!("账号无 JWT Token，无法刷新资料"))?;
+
+        let client = TraeApiClient::new_with_token(token)?;
+        let user_info = client.get_user_info_by_token().await?;
+
+        // 更新 name / avatar_url / email（仅当有值时）
+        let mut changed = false;
+        if let Some(acc) = self.store.accounts.iter_mut().find(|a| a.id == account_id) {
+            if let Some(ref screen_name) = user_info.screen_name {
+                if !screen_name.is_empty() && acc.name != *screen_name {
+                    println!("[INFO] 账号 {} 用户名更新: {} -> {}", acc.user_id, acc.name, screen_name);
+                    acc.name = screen_name.clone();
+                    changed = true;
+                }
+            }
+            if let Some(ref avatar) = user_info.avatar_url {
+                if !avatar.is_empty() && acc.avatar_url != *avatar {
+                    acc.avatar_url = avatar.clone();
+                    changed = true;
+                }
+            }
+            if let Some(ref email) = user_info.email {
+                if !email.is_empty() && acc.email != *email {
+                    acc.email = email.clone();
+                    changed = true;
+                }
+            }
+            if changed {
+                acc.updated_at = chrono::Utc::now().timestamp();
+            }
+        }
+
+        if changed {
+            self.save_store()?;
+        }
+        Ok(changed)
+    }
+
+    /// 批量刷新所有账号资料（静默执行，失败不报错，返回有变化的账号 ID 列表）
+    /// v1.0.31+: 启动时 + 定期轮询调用
+    pub async fn refresh_all_profiles(&mut self) -> Vec<String> {
+        let ids: Vec<String> = self.store.accounts.iter()
+            .filter(|a| a.jwt_token.is_some())
+            .map(|a| a.id.clone())
+            .collect();
+
+        let mut changed_ids = Vec::new();
+        for id in ids {
+            match self.refresh_account_profile(&id).await {
+                Ok(true) => {
+                    println!("[INFO] 账号资料已更新: {}", id);
+                    changed_ids.push(id);
+                }
+                Ok(false) => {} // 无变化
+                Err(e) => {
+                    println!("[WARN] 刷新账号资料失败 {}: {}", id, e);
+                }
+            }
+        }
+        changed_ids
+    }
+
     /// 更新账号 Token
     pub async fn update_account_token(&mut self, account_id: &str, token: String) -> Result<UsageSummary> {
         let client = TraeApiClient::new_with_token(&token)?;
