@@ -1,7 +1,7 @@
 {
   "name": "trae-work-cn-account-manager",
   "private": true,
-  "version": "1.0.23",
+  "version": "1.0.25",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -30,7 +30,8 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     message: string;
     deleteData: boolean;
     type: "danger" | "warning" | "info";
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
+    isProcessing?: boolean;
   } | null>(null);
 
   const [renameModal, setRenameModal] = useState<{
@@ -140,15 +141,23 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     setConfirmModal({
       isOpen: true,
       title: "删除实例",
-      message: `确定删除实例 "${inst.name}" 吗？\n\n将永久删除实例配置和全部数据目录（无法恢复）。\n如果实例正在运行，请先关闭再删除，否则会因文件占用导致删除失败。`,
+      message: `确定删除实例 "${inst.name}" 吗？\n\n将永久删除实例配置和全部数据目录（无法恢复）。\n如果实例正在运行，请先关闭再删除，否则会因文件占用导致删除失败。\n\n删除大目录可能需要几十秒，期间按钮会显示"处理中..."，请耐心等待。`,
       deleteData: true,
       type: "danger",
-      onConfirm: () => {
-        // 直接用 true，不依赖闭包里可能陈旧的 confirmModal 状态
-        api.deleteInstance(instanceId, true)
-          .then(() => loadInstances())
-          .catch((err) => alert(err.message || "删除失败"));
-        setConfirmModal(null);
+      isProcessing: false,
+      onConfirm: async () => {
+        // 标记处理中：按钮变灰 + 显示"处理中..." + 禁用取消/遮罩关闭
+        setConfirmModal((prev) => (prev ? { ...prev, isProcessing: true } : prev));
+        try {
+          await api.deleteInstance(instanceId, true);
+          addToast("success", `实例 "${inst.name}" 已删除`);
+          setConfirmModal(null);
+          await loadInstances();
+        } catch (err: any) {
+          addToast("error", err.message || "删除失败");
+          // 恢复按钮，让用户可以重试或取消
+          setConfirmModal((prev) => (prev ? { ...prev, isProcessing: false } : prev));
+        }
       },
     });
   };
@@ -301,6 +310,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
           type={confirmModal.type}
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal(null)}
+          isProcessing={confirmModal.isProcessing}
         />
       )}
 

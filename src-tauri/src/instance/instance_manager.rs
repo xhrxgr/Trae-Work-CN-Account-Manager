@@ -17,6 +17,10 @@ pub struct InstanceManager {
     data_path: PathBuf,
     /// data_dir -> (计算时间戳, 大小) 缓存
     disk_cache: HashMap<String, (i64, u64)>,
+    /// 上一次轮询时各实例的运行状态（instance_id -> was_running）
+    /// 用于检测「运行→停止」转换，记录 last_closed_at
+    /// 应用刚启动时此 map 为空，首次轮询只初始化状态不记录关闭
+    prev_running: HashMap<String, bool>,
 }
 
 impl InstanceManager {
@@ -47,7 +51,7 @@ impl InstanceManager {
             let _ = fs::write(&data_path, serde_json::to_string_pretty(&store)?);
         }
 
-        Ok(Self { store, data_path, disk_cache: HashMap::new() })
+        Ok(Self { store, data_path, disk_cache: HashMap::new(), prev_running: HashMap::new() })
     }
 
     /// 自动绑定账号：扫描每个实例的 data-dir，根据 storage.json 中的 user_id 匹配本地账号
@@ -197,10 +201,22 @@ impl InstanceManager {
                 continue;
             }
 
-            // 推断实例名：优先从 storage.json 读取 user_id，回退到目录后缀
-            let inferred_name = machine::read_trae_login_from_dir(&path_str)
+            // 必须有有效登录账号（user_id 非空）才自动发现
+            // 避免空测试目录、无登录的 data-dir 被误加入实例列表
+            let login_info = machine::read_trae_login_from_dir(&path_str)
                 .ok()
-                .flatten()
+                .flatten();
+
+            let login_info = match login_info {
+                Some(ref info) if !info.user_id.is_empty() => login_info,
+                _ => {
+                    // 没有有效登录账号，跳过此目录
+                    continue;
+                }
+            };
+
+            // 推断实例名：优先用 username，回退到 user_id 前缀
+            let inferred_name = login_info
                 .and_then(|info| {
                     if !info.username.is_empty() {
                         Some(info.username.clone())
@@ -209,7 +225,7 @@ impl InstanceManager {
                     }
                 })
                 .unwrap_or_else(|| {
-                    // 用目录后缀作为名称
+                    // 用目录后缀作为名称（理论上不会走到这里，因为上面已过滤）
                     if let Some(suffix) = name.strip_prefix("TRAE SOLO CN_") {
                         format!("实例_{}", &suffix[..8.min(suffix.len())])
                     } else {
@@ -293,6 +309,7 @@ impl InstanceManager {
                 machine_id: inst.machine_id.clone(),
                 created_at: inst.created_at,
                 last_launched_at: inst.last_launched_at,
+                last_closed_at: inst.last_closed_at,
                 disk_usage: 0,
                 is_running: false,
                 pid: None,
@@ -304,6 +321,7 @@ impl InstanceManager {
     /// 计算实例的运行时信息（is_running 批量检查 + disk_usage 从缓存读 + account_status 从 storage.json 读）
     /// disk_usage 缓存未命中时返回 0，由后台任务异步计算填充
     /// 应在 spawn_blocking 中调用，避免阻塞 async 运行时
+    /// 同时检测「运行→停止」转换，记录 last_closed_at 并持久化
     pub fn compute_runtime_info(&mut self, briefs: &mut [InstanceBrief]) {
         if briefs.is_empty() {
             return;
@@ -316,6 +334,45 @@ impl InstanceManager {
             if let Some((_, is_running, pid)) = running_info.iter().find(|(dir, _, _)| *dir == brief.data_dir) {
                 brief.is_running = *is_running;
                 brief.pid = *pid;
+            }
+        }
+
+        // 1.5 检测「运行→停止」转换，记录 last_closed_at
+        // 应用刚启动时 prev_running 为空，首次轮询只初始化状态不记录关闭（避免误把"启动前就停止"的实例当作刚关闭）
+        // 仅当 prev_running 中有该实例且值为 true、当前为 false 时才记录关闭
+        let now = chrono::Utc::now().timestamp();
+        // 第一遍：只读，收集发生关闭的实例 id，并更新 prev_running
+        let mut closed_ids: Vec<String> = Vec::new();
+        for brief in briefs.iter() {
+            let was_running = self.prev_running.get(&brief.id).copied();
+            if matches!(was_running, Some(true)) && !brief.is_running {
+                closed_ids.push(brief.id.clone());
+            }
+            // 更新 prev_running 为当前状态
+            self.prev_running.insert(brief.id.clone(), brief.is_running);
+        }
+        // 第二遍：可变更新 briefs 的 last_closed_at，让前端本次轮询就能看到
+        if !closed_ids.is_empty() {
+            for b in briefs.iter_mut() {
+                if closed_ids.iter().any(|id| id == &b.id) {
+                    b.last_closed_at = now;
+                }
+            }
+            // 同步写入 store.instances 并持久化
+            let mut changed = false;
+            for id in &closed_ids {
+                if let Some(inst) = self.store.instances.iter_mut().find(|i| &i.id == id) {
+                    inst.last_closed_at = now;
+                    inst.updated_at = now;
+                    changed = true;
+                }
+            }
+            if changed {
+                if let Err(e) = self.save_store() {
+                    println!("[WARN] 保存 last_closed_at 失败: {}", e);
+                } else {
+                    println!("[INFO] 检测到 {} 个实例关闭，已记录 last_closed_at", closed_ids.len());
+                }
             }
         }
 
