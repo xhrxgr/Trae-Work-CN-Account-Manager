@@ -20,8 +20,8 @@ function isListUserIdPlaceholder(name: string): boolean {
   return /^用户\d+$/.test(name);
 }
 
-/// 主标题（与 AccountCard 策略保持一致）：
-/// 1) 人类可读的 name → 2) note → 3) email → 4) 兜底空
+/// 主标题（与 AccountCard 策略保持一致，v1.0.30 修复空标题）：
+/// 1) 人类可读的 name → 2) note → 3) email → 4) 兜底用占位 name
 function getListDisplayName(acc: AccountListItemProps["account"]): string {
   if (acc.name && !isListUserIdPlaceholder(acc.name)) {
     return acc.name;
@@ -32,10 +32,12 @@ function getListDisplayName(acc: AccountListItemProps["account"]): string {
   if (acc.email) {
     return acc.email;
   }
-  return "";
+  // 兜底：用占位 name，总比空标题好
+  return acc.name || "";
 }
 
 /// 副标题：与主标题**不同**才显示，否则用账号来源标签
+/// v1.0.30: 去掉 #hex-id 后缀（UUID 后 6 位像颜色值，用户反馈看不懂）
 function getListSubtitle(acc: AccountListItemProps["account"]): string {
   const main = getListDisplayName(acc);
   // 1) email
@@ -50,8 +52,6 @@ function getListSubtitle(acc: AccountListItemProps["account"]): string {
   if (acc.source === "browser") return "浏览器登录";
   if (acc.source === "local") return "本地读取";
   if (acc.source === "manual") return "手动添加";
-  // 4) 兜底：id 后 6 位
-  if (acc.id && acc.id.length >= 6) return `#${acc.id.slice(-6)}`;
   return "";
 }
 

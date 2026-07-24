@@ -41,6 +41,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
 
   const [noteModal, setNoteModal] = useState<{
     instanceId: string;
+    instanceName: string;
     note: string;
   } | null>(null);
 
@@ -194,18 +195,25 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
   const handleEditNote = (instanceId: string) => {
     const inst = instances.find((i) => i.id === instanceId);
     if (!inst) return;
-    setNoteModal({ instanceId, note: inst.note ?? "" });
+    setNoteModal({ instanceId, instanceName: inst.name, note: inst.note ?? "" });
   };
 
   const handleNoteSubmit = async () => {
     if (!noteModal) return;
     try {
       const trimmed = noteModal.note.trim();
-      await api.updateInstanceNote(noteModal.instanceId, trimmed.length > 0 ? trimmed : null);
+      const note = trimmed.length > 0 ? trimmed : null;
+      await api.updateInstanceNote(noteModal.instanceId, note);
+      // 局部更新，不重新加载整个列表
+      setInstances((prev) =>
+        prev.map((i) =>
+          i.id === noteModal.instanceId ? { ...i, note: note ?? null } : i
+        )
+      );
+      addToast("success", "备注已保存");
       setNoteModal(null);
-      await loadInstances();
     } catch (err: any) {
-      alert(err.message || "备注更新失败");
+      addToast("error", err.message || "备注更新失败");
     }
   };
 
@@ -415,21 +423,32 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       {noteModal && (
         <div className="modal-overlay" onClick={() => setNoteModal(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>编辑实例备注</h2>
-            <input
-              type="text"
-              value={noteModal.note}
-              onChange={(e) => setNoteModal({ ...noteModal, note: e.target.value })}
-              placeholder="可选，例如：工作账号 / 临时测试"
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setNoteModal(null)}>
-                取消
+            <div className="modal-header-fixed">
+              <h2>编辑备注</h2>
+              <button className="modal-close-btn" onClick={() => setNoteModal(null)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
               </button>
-              <button className="btn-primary" onClick={handleNoteSubmit}>
-                确定
-              </button>
+            </div>
+            <div className="modal-body-scrollable">
+              <div className="form-section">
+                <label className="form-label">
+                  备注 <span className="optional">（可选）</span>
+                </label>
+                <textarea
+                  value={noteModal.note}
+                  onChange={(e) => setNoteModal({ ...noteModal, note: e.target.value })}
+                  placeholder="输入备注内容（留空则清除备注）..."
+                  rows={4}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="modal-actions-fixed">
+              <button type="button" onClick={() => setNoteModal(null)}>取消</button>
+              <button type="button" className="primary" onClick={handleNoteSubmit}>保存备注</button>
             </div>
           </div>
         </div>

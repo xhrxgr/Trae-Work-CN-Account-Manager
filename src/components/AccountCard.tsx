@@ -23,11 +23,11 @@ function isUserIdPlaceholder(name: string): boolean {
   return /^用户\d+$/.test(name);
 }
 
-/// 主标题优先级（v1.0.27+）：
+/// 主标题优先级（v1.0.27+，v1.0.30 修复空标题）：
 /// 1. 人类可读的 name（如 "林嘉琪"、"电话卡"）
 /// 2. 否则（CN 本地账号 name 是 "用户xxx" 占位）→ 改用 note
 /// 3. 否则用 email
-/// 4. 最后兜底用 user_id 后 6 位（避免和副标题重复）
+/// 4. 最后兜底用占位 name（"用户xxx" 总比空好）
 function getDisplayName(acc: AccountCardProps["account"]): string {
   if (acc.name && !isUserIdPlaceholder(acc.name)) {
     return acc.name;
@@ -38,29 +38,22 @@ function getDisplayName(acc: AccountCardProps["account"]): string {
   if (acc.email) {
     return acc.email;
   }
-  // 最后兜底：返回 user_id 后 6 位（截断自 isCurrent 上下文）
-  return "";
+  // 兜底：用占位 name（"用户xxx"），总比空标题好
+  return acc.name || "";
 }
 
 /// 副标题：与主标题**不同**时才显示，避免重复
-/// 优先显示 user_id（CN 账号的"身份证"），有邮箱则用邮箱
+/// 优先显示 email，其次占位 name
+/// v1.0.30: 去掉 #hex-id 后缀（UUID 后 6 位像颜色值，用户反馈看不懂）
 function getSubtitle(acc: AccountCardProps["account"]): string {
   const main = getDisplayName(acc);
-  // 候选：邮箱、user_id 短形式（"用户xxx" 完整名）、不带 "用户" 前缀的 id
   // 1) 邮箱
   if (acc.email && acc.email !== main) {
     return acc.email;
   }
-  // 2) name 是占位形式时，把 "用户xxx" 作为副标题显示
+  // 2) name 是占位形式时，如果主标题用的是 note/email，把 "用户xxx" 作为副标题
   if (acc.name && isUserIdPlaceholder(acc.name) && acc.name !== main) {
     return acc.name;
-  }
-  // 3) 否则用账号 id 后 6 位（任何时候都不和主标题重复）
-  if (acc.id && acc.id.length >= 6) {
-    const shortId = `#${acc.id.slice(-6)}`;
-    if (shortId !== main) {
-      return shortId;
-    }
   }
   return "";
 }
