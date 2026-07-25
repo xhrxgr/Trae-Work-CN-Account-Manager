@@ -58,7 +58,21 @@ impl AccountManager {
     /// 创建账号管理器
     pub fn new() -> Result<Self> {
         let data_path = Self::get_data_path()?;
-        let store = Self::load_store(&data_path)?;
+        let mut store = Self::load_store(&data_path)?;
+
+        // v1.0.32: 启动时修复历史数据 — name 被错误更新为纯数字（user_id）的账号回退为占位形式
+        let mut fixed = false;
+        for acc in store.accounts.iter_mut() {
+            if !acc.name.is_empty() && acc.name.chars().all(|c| c.is_ascii_digit()) {
+                let placeholder = format!("用户{}", acc.user_id);
+                println!("[INFO] 启动时修复纯数字 name: {} -> {}", acc.name, placeholder);
+                acc.name = placeholder;
+                fixed = true;
+            }
+        }
+        if fixed {
+            let _ = fs::write(&data_path, serde_json::to_string_pretty(&store).unwrap_or_default());
+        }
 
         Ok(Self { store, data_path })
     }
@@ -728,8 +742,19 @@ impl AccountManager {
         // 更新 name / avatar_url / email（仅当有值时）
         let mut changed = false;
         if let Some(acc) = self.store.accounts.iter_mut().find(|a| a.id == account_id) {
+            // v1.0.32: 修复历史数据 — 如果 name 被之前版本错误更新为纯数字（user_id），回退为占位形式
+            if !acc.name.is_empty() && acc.name.chars().all(|c| c.is_ascii_digit()) {
+                let placeholder = format!("用户{}", acc.user_id);
+                if acc.name != placeholder {
+                    println!("[INFO] 账号 {} 修复纯数字 name: {} -> {}", acc.user_id, acc.name, placeholder);
+                    acc.name = placeholder;
+                    changed = true;
+                }
+            }
             if let Some(ref screen_name) = user_info.screen_name {
-                if !screen_name.is_empty() && acc.name != *screen_name {
+                // v1.0.32: 跳过纯数字 screen_name（CN 免费版未设昵称时 API 返回 user_id 数字串）
+                // 只更新为真正的人类可读昵称
+                if !screen_name.is_empty() && !screen_name.chars().all(|c| c.is_ascii_digit()) && acc.name != *screen_name {
                     println!("[INFO] 账号 {} 用户名更新: {} -> {}", acc.user_id, acc.name, screen_name);
                     acc.name = screen_name.clone();
                     changed = true;

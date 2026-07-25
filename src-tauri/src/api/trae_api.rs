@@ -63,10 +63,10 @@ impl TraeApiClient {
         let mut headers = header::HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, "application/json".parse()?);
         headers.insert(header::ACCEPT, "application/json, text/plain, */*".parse()?);
-        
+
         headers.insert(header::ORIGIN, "https://www.trae.cn".parse()?);
         headers.insert(header::REFERER, "https://www.trae.cn/".parse()?);
-        
+
         headers.insert(
             header::USER_AGENT,
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".parse()?,
@@ -82,6 +82,24 @@ impl TraeApiClient {
         Ok(headers)
     }
 
+    /// 为 GetUserInfo 接口构建请求头
+    /// 关键修复（v1.0.33）：GetUserInfo 必须用 `x-cloudide-token` 头（不是 Authorization: Cloud-IDE-JWT），
+    /// 否则 CN 免费版账号返回的 ScreenName 是纯数字 user_id，而非真实昵称。
+    /// 逆向来源：TRAE 客户端 main.js 中 `m(t){return{"Content-Type":"application/json","x-cloudide-token":t}}`
+    fn build_headers_for_user_info(&self) -> Result<header::HeaderMap> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse()?);
+        headers.insert(header::ACCEPT, "application/json, text/plain, */*".parse()?);
+
+        let token = self.jwt_token.as_ref()
+            .ok_or_else(|| anyhow!("Token 不存在，无法构建 GetUserInfo 请求头"))?;
+        let token_value = header::HeaderValue::from_bytes(token.as_bytes())
+            .map_err(|e| anyhow!("Token 格式错误: {}", e))?;
+        headers.insert("x-cloudide-token", token_value);
+
+        Ok(headers)
+    }
+
     /// 通过 Token 获取用户信息
     pub async fn get_user_info_by_token(&self) -> Result<TokenUserInfo> {
         // 先解析 JWT Token 获取基本信息
@@ -89,14 +107,24 @@ impl TraeApiClient {
         let jwt_data = Self::parse_jwt_token(token)?;
 
         // 优先尝试调用 GetUserInfo 接口获取真实用户名
-        let headers = self.build_headers_token_only()?;
+        // 关键修复（v1.0.33）：必须用 x-cloudide-token 头 + ReqSource=IDE 请求体
+        // 逆向来源：TRAE 客户端 main.js:
+        //   async getUserInfo(t,e,i={}){
+        //     i={ReqSource:Tn(this.d)?"Lite":"IDE",...i,IDEVersion:this.d.appVersion};
+        //     const s={headers:this.m(e)};  // m(t){return{"Content-Type":"application/json","x-cloudide-token":t}}
+        //   }
+        // 旧实现用 `{"IfWebPage": true}` + Authorization: Cloud-IDE-JWT，CN 免费版会返回纯数字 ScreenName
+        let headers = self.build_headers_for_user_info()?;
         let user_info_url = format!("{}/cloudide/api/v3/trae/GetUserInfo", API_BASE_CN);
-        
+
         let user_info_response = self
             .client
             .post(&user_info_url)
             .headers(headers.clone())
-            .json(&json!({"IfWebPage": true}))
+            .json(&json!({
+                "ReqSource": "IDE",
+                "IDEVersion": "1.107.1"
+            }))
             .send()
             .await;
 
@@ -115,13 +143,15 @@ impl TraeApiClient {
         }
 
         // 如果 GetUserInfo 失败，回退到 entitlement 接口
+        // 注意：entitlement 接口用 Authorization: Cloud-IDE-JWT（不是 x-cloudide-token），需要重新构建 headers
         let mut last_error = anyhow!("API 请求失败");
         let url = format!("{}/trae/api/v1/pay/user_current_entitlement_list", API_BASE_CN);
+        let ent_headers = self.build_headers_token_only()?;
 
         let response = self
             .client
             .post(&url)
-            .headers(headers)
+            .headers(ent_headers)
             .json(&json!({"require_usage": true}))
             .send()
             .await;

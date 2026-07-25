@@ -156,16 +156,15 @@ pub async fn start_login_flow(
                 console.log("[Trae Auto] 已拦截 refreshToken:", __refreshToken ? "是（长度 " + __refreshToken.length + "）" : "否");
 
                 // 用 token 主动调用 GetUserInfo 获取真实用户名和头像
-                // 这样即使页面没有调用 GetUserInfo，也能获取到用户信息
+                // 关键修复（v1.0.33）：必须用 x-cloudide-token 头 + ReqSource=IDE 请求体，
+                // 否则 CN 免费版返回的 ScreenName 是纯数字 user_id（逆向自 TRAE 客户端 main.js）
                 fetch("https://api.trae.cn/cloudide/api/v3/trae/GetUserInfo", {{
                     method: "POST",
                     headers: {{
                         "Content-Type": "application/json",
-                        "Authorization": "Cloud-IDE-JWT " + token,
-                        "Origin": "https://www.trae.cn",
-                        "Referer": "https://www.trae.cn/"
+                        "x-cloudide-token": token
                     }},
-                    body: JSON.stringify({{"IfWebPage": true}})
+                    body: JSON.stringify({{"ReqSource": "IDE", "IDEVersion": "1.107.1"}})
                 }}).then(function(resp) {{
                     return resp.json();
                 }}).then(function(data) {{
