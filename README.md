@@ -136,7 +136,7 @@ npx tauri build
 
 ## 更新日志
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。
+详见 GitHub [Releases](https://github.com/xhrxgr/Trae-Work-CN-Account-Manager/releases)。
 
 ---
 

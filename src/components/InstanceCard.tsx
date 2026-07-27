@@ -222,7 +222,7 @@ export function InstanceCard({ instance, onLaunch, onContextMenu, onRefreshStatu
         )}
 
         <div className="instance-disk">
-          磁盘: {formatDiskUsage(instance.disk_usage)} · {formatLaunchTime(instance.last_launched_at)} · {formatCloseTime(instance.last_closed_at)}
+          磁盘: {formatDiskUsage(instance.disk_usage)} · {formatLaunchTime(instance.last_launched_at)}{!instance.is_running && ` · ${formatCloseTime(instance.last_closed_at)}`}
         </div>
       </div>
 
