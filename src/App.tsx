@@ -38,7 +38,13 @@ function App() {
     message: string;
     type: "danger" | "warning" | "info";
     onConfirm: () => void;
+    isProcessing?: boolean;
   } | null>(null);
+
+  // 辅助：标记当前 confirmModal 为处理中（防重复点击）
+  const setConfirmProcessing = (processing: boolean) => {
+    setConfirmModal((prev) => (prev ? { ...prev, isProcessing: processing } : prev));
+  };
 
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -82,6 +88,7 @@ function App() {
     try {
       const list = await api.getAccounts();
       setAccounts(list);
+      setError(null); // 重置错误状态，避免显示陈旧错误
     } catch (err: any) {
       setError(err.message || "加载账号失败");
     } finally {
@@ -169,6 +176,7 @@ function App() {
       message: "确定要删除此账号吗？删除后无法恢复。",
       type: "danger",
       onConfirm: async () => {
+        setConfirmProcessing(true);
         try {
           await api.removeAccount(accountId);
           setSelectedIds((prev) => {
@@ -240,7 +248,8 @@ function App() {
       message: `确定要切换到账号 "${account.email || account.name}" 吗？\n\n切换后该账号将绑定到「默认」实例。\n\n系统将自动关闭 TRAE Work CN 并切换登录信息。`,
       type: "warning",
       onConfirm: async () => {
-        setConfirmModal(null);
+        // M7 修复：先标记处理中（禁用按钮 + 防重复点击），完成后再关弹窗
+        setConfirmProcessing(true);
         addToast("info", "正在切换账号，请稍候...");
         try {
           await api.switchAccount(accountId);
@@ -249,6 +258,7 @@ function App() {
         } catch (err: any) {
           addToast("error", err.message || "切换账号失败");
         }
+        setConfirmModal(null);
       },
     });
   };
@@ -349,7 +359,7 @@ function App() {
       message: `确定要删除选中的 ${ids.length} 个账号吗？此操作无法撤销。`,
       type: "danger",
       onConfirm: async () => {
-        setConfirmModal(null);
+        setConfirmProcessing(true);
         addToast("info", `正在删除 ${ids.length} 个账号...`);
 
         // 并行删除所有选中的账号
@@ -369,6 +379,7 @@ function App() {
         } else {
           addToast("warning", `删除完成：${successCount} 成功，${failCount} 失败`);
         }
+        setConfirmModal(null);
       },
     });
   };
@@ -394,7 +405,7 @@ function App() {
       message: `检测到 ${expiredAccounts.length} 个过期账号，确定要删除吗？此操作无法撤销。`,
       type: "warning",
       onConfirm: async () => {
-        setConfirmModal(null);
+        setConfirmProcessing(true);
         addToast("info", `正在删除 ${expiredAccounts.length} 个过期账号...`);
 
         // 并行删除所有过期账号
@@ -414,6 +425,7 @@ function App() {
         } else {
           addToast("warning", `删除完成：${successCount} 成功，${failCount} 失败`);
         }
+        setConfirmModal(null);
       },
     });
   };
@@ -620,6 +632,7 @@ function App() {
           cancelText="取消"
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal(null)}
+          isProcessing={confirmModal.isProcessing}
         />
       )}
 
@@ -642,15 +655,15 @@ function App() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
-          onViewDetail={() => {
+          onPrimaryAction={() => {
             handleViewDetail(contextMenu.accountId);
             setContextMenu(null);
           }}
-          onUpdateToken={() => {
+          onSecondaryAction={() => {
             handleOpenUpdateToken(contextMenu.accountId);
             setContextMenu(null);
           }}
-          onCopyToken={() => {
+          onTertiaryAction={() => {
             handleCopyToken(contextMenu.accountId);
             setContextMenu(null);
           }}
@@ -658,11 +671,11 @@ function App() {
             handleOpenEditNote(contextMenu.accountId);
             setContextMenu(null);
           }}
-          onSwitchAccount={() => {
+          onQuaternaryAction={() => {
             handleSwitchAccount(contextMenu.accountId);
             setContextMenu(null);
           }}
-          onLaunchMulti={() => {
+          onExtraAction={() => {
             handleLaunchMulti(contextMenu.accountId);
             setContextMenu(null);
           }}

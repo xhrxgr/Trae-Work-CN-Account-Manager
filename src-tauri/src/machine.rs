@@ -226,7 +226,7 @@ pub fn kill_product(product_type: ProductType) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn kill_product(_product_type: ProductType) -> Result<()> {
+pub fn kill_product(product_type: ProductType) -> Result<()> {
     let display_name = "TRAE Work CN";
     let app_name = "TRAE SOLO CN";
     let app_bundle = "TRAE SOLO CN.app";
@@ -1517,6 +1517,15 @@ pub fn decrypt_solo_cn_auth_info(encrypted_b64: &str) -> Result<String> {
 
     let ciphertext = &encrypted_data[total_header..];
     let mut decryptor = Decryptor::<Aes128>::new(&aes_key.into(), &iv.into());
+
+    // 关键修复（v1.0.36）：校验密文长度是 16 的倍数，否则 chunks(16) 最后一块不足 16 字节
+    // 会导致 block.copy_from_slice(chunk) panic（源切片长度不等于目标切片长度）
+    if ciphertext.len() % 16 != 0 {
+        return Err(anyhow!(
+            "加密数据长度异常（{} 字节，非 16 的倍数），可能已损坏",
+            ciphertext.len()
+        ));
+    }
 
     let mut padded = vec![0u8; ciphertext.len()];
     // CBC 解密逐块进行

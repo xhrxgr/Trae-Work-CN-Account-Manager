@@ -21,6 +21,7 @@ pub async fn start_login_flow(
 
     let app_clone = app.clone();
     let state_clone = state.clone();
+    let shutdown_for_callback = shutdown_tx.clone();
 
     // POST /callback — 接收 token、cookies 和用户信息
     let callback = warp::post()
@@ -29,6 +30,7 @@ pub async fn start_login_flow(
         .and_then(move |body: serde_json::Value| {
             let app = app_clone.clone();
             let state = state_clone.clone();
+            let shutdown = shutdown_for_callback.clone();
             async move {
                 let token = body["token"].as_str().unwrap_or("");
                 if token.is_empty() {
@@ -75,6 +77,8 @@ pub async fn start_login_flow(
                 {
                     Ok(account) => {
                         let _ = app.emit("login-success", &account.email);
+                        // 关键修复（v1.0.36）：登录成功时先消费 shutdown_tx，避免窗口关闭时误发 login-cancelled
+                        let _ = shutdown.lock().await.take();
                         // 延迟关闭窗口，让 warp 先返回响应
                         let app2 = app.clone();
                         tokio::spawn(async move {
@@ -89,6 +93,8 @@ pub async fn start_login_flow(
                         let msg = e.to_string();
                         if msg.contains("已存在") {
                             let _ = app.emit("login-failed", "该账号已存在");
+                            // 同样消费 shutdown_tx，避免误发 login-cancelled
+                            let _ = shutdown.lock().await.take();
                             let app2 = app.clone();
                             tokio::spawn(async move {
                                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;

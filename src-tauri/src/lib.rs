@@ -173,23 +173,108 @@ async fn update_instance_note(
 }
 
 /// 绑定账号到实例（写入登录信息）
+/// 三段式（v1.0.37）：锁内取实例/账号数据 → 锁外写文件 + 启动进程 → 锁内更新 bound_account_id
 #[tauri::command]
 async fn bind_account_to_instance(
     instance_id: String,
     account_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let account_manager = state.account_manager.lock().await;
-    let mut manager = state.instance_manager.lock().await;
-    manager.bind_account(&instance_id, account_id.as_deref(), &account_manager).map_err(Into::into)
+    // 1. 锁内快速取数据（锁顺序: account_manager → instance_manager）
+    let ctx = {
+        let account_manager = state.account_manager.lock().await;
+        let instance_manager = state.instance_manager.lock().await;
+        instance_manager.prepare_bind_account_context(&instance_id, account_id.as_deref(), &account_manager)?
+    };
+
+    // 2. 锁外做文件 I/O + 进程启动（不阻塞其他 Tauri 命令）
+    //    实例运行中时跳过写入（保留 TRAE 刷新的 token），仅未运行且绑定账号时才写 + 启动
+    if !ctx.is_running {
+        if let Some(login_info) = &ctx.login_info {
+            machine::write_login_info_to_dir(
+                login_info,
+                ctx.machine_id.as_deref(),
+                &ctx.data_dir,
+            )?;
+
+            // 设置窗口标题（通过 settings.json 的 window.title，持久化且跨重启）
+            let title = format!("{} - TRAE Work CN", ctx.inst_name);
+            let _ = machine::write_window_title_to_dir(&ctx.data_dir, &title);
+
+            // 绑定后自动启动 TRAE
+            #[cfg(target_os = "windows")]
+            let shared_ext = std::env::var("APPDATA")
+                .ok()
+                .map(|p| std::path::PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
+            #[cfg(not(target_os = "windows"))]
+            let shared_ext = None;
+
+            machine::open_product_with_data_dir(
+                machine::ProductType::TraeSoloCn,
+                &ctx.data_dir,
+                shared_ext.as_deref(),
+            )?;
+        }
+    }
+
+    // 3. 锁内快速更新 bound_account_id + 落盘
+    {
+        let mut instance_manager = state.instance_manager.lock().await;
+        instance_manager.apply_bound_account(&instance_id, account_id.as_deref())?;
+    }
+
+    println!("[INFO] 已绑定账号到实例: {}", ctx.inst_name);
+    Ok(())
 }
 
 /// 启动实例（若绑定了账号则自动写入登录信息 + 窗口标题）
+/// 三段式（v1.0.37）：锁内取实例/账号数据 → 锁外写文件 + 启动进程 → 锁内更新 last_launched_at
 #[tauri::command]
 async fn launch_instance(instance_id: String, state: State<'_, AppState>) -> Result<bool> {
-    let account_manager = state.account_manager.lock().await;
-    let mut manager = state.instance_manager.lock().await;
-    manager.launch_instance(&instance_id, &account_manager).map_err(Into::into)
+    // 1. 锁内快速取数据（锁顺序: account_manager → instance_manager）
+    let ctx = {
+        let account_manager = state.account_manager.lock().await;
+        let instance_manager = state.instance_manager.lock().await;
+        instance_manager.prepare_launch_context(&instance_id, &account_manager)?
+    };
+
+    // 2. 锁外做文件 I/O + 进程启动（不阻塞其他 Tauri 命令）
+    //    仅当需要写登录信息时才写（实例运行中、未绑定账号、或同账号已登录则跳过）
+    if let Some(login_info) = &ctx.login_info {
+        if let Err(e) = machine::write_login_info_to_dir(
+            login_info,
+            ctx.machine_id.as_deref(),
+            &ctx.data_dir,
+        ) {
+            println!("[WARN] 写入登录信息失败: {}", e);
+        }
+    }
+
+    // 设置窗口标题（通过 settings.json 的 window.title，持久化且跨重启）
+    let title = format!("{} - TRAE Work CN", ctx.inst_name);
+    let _ = machine::write_window_title_to_dir(&ctx.data_dir, &title);
+
+    // 共享插件目录
+    #[cfg(target_os = "windows")]
+    let shared_ext = std::env::var("APPDATA")
+        .ok()
+        .map(|p| std::path::PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
+    #[cfg(not(target_os = "windows"))]
+    let shared_ext = None;
+
+    machine::open_product_with_data_dir(
+        machine::ProductType::TraeSoloCn,
+        &ctx.data_dir,
+        shared_ext.as_deref(),
+    )?;
+
+    // 3. 锁内快速更新 last_launched_at
+    {
+        let mut instance_manager = state.instance_manager.lock().await;
+        instance_manager.apply_launched(&instance_id)?;
+    }
+
+    Ok(ctx.is_running)
 }
 
 /// 打开实例数据目录
@@ -299,17 +384,72 @@ async fn delete_account_backup(state: State<'_, AppState>) -> Result<()> {
 }
 
 /// 获取账号使用量
+/// 三段式（v1.0.37）：锁内取 token/cookies → 锁外 HTTP → 锁内更新 plan_type
 #[tauri::command]
 async fn get_account_usage(account_id: String, state: State<'_, AppState>) -> Result<UsageSummary> {
-    let mut manager = state.account_manager.lock().await;
-    manager.get_account_usage(&account_id).await.map_err(Into::into)
+    // 1. 锁内快速收集 (jwt_token, cookies)
+    let (token, cookies) = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_account_for_usage(&account_id)
+            .ok_or_else(|| ApiError { message: "账号不存在".to_string() })?
+    };
+
+    // 2. 锁外 HTTP 调 API（不阻塞其他账号命令）
+    let summary = if let Some(token) = token.as_ref() {
+        let client = TraeApiClient::new_with_token(token)?;
+        match client.get_usage_summary_by_token().await {
+            Ok(summary) => summary,
+            Err(e) => {
+                let error_msg = e.to_string();
+                if error_msg.contains("401") {
+                    return Err(anyhow::anyhow!("TRAE Work CN Token 已过期，请重新登录获取新 Token").into());
+                } else {
+                    return Err(e.into());
+                }
+            }
+        }
+    } else if let Some(cookies) = cookies.as_ref() {
+        let mut client = TraeApiClient::new(cookies)?;
+        client.get_usage_summary().await?
+    } else {
+        return Err(anyhow::anyhow!("账号没有有效的 Token 或 Cookies").into());
+    };
+
+    // 3. 锁内快速更新 plan_type
+    {
+        let mut manager = state.account_manager.lock().await;
+        manager.apply_refreshed_usage(&account_id, &summary)?;
+    }
+
+    Ok(summary)
 }
 
 /// 更新账号 Token
+/// 三段式（v1.0.37）：锁内取 user_id → 锁外 HTTP（验证 token + 拉取 usage）→ 锁内校验并更新
 #[tauri::command]
 async fn update_account_token(account_id: String, token: String, state: State<'_, AppState>) -> Result<UsageSummary> {
-    let mut manager = state.account_manager.lock().await;
-    manager.update_account_token(&account_id, token).await.map_err(Into::into)
+    // 1. 锁内快速取账号 user_id（用于后续校验 token 归属）
+    let expected_user_id = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_account_user_id(&account_id)
+            .ok_or_else(|| ApiError { message: "账号不存在".to_string() })?
+    };
+
+    // 2. 锁外 HTTP：用新 token 验证用户 + 获取使用量（不阻塞其他账号命令）
+    let client = TraeApiClient::new_with_token(&token)?;
+    let user_info = client.get_user_info_by_token().await?;
+    if user_info.user_id != expected_user_id {
+        return Err(anyhow::anyhow!("Token 对应的用户与当前账号不匹配").into());
+    }
+    let summary = client.get_usage_summary_by_token().await?;
+
+    // 3. 锁内快速更新（再次校验 user_id，避免并发串号）
+    {
+        let mut manager = state.account_manager.lock().await;
+        manager.apply_updated_token(&account_id, token, &expected_user_id, &summary)?;
+    }
+
+    Ok(summary)
 }
 
 /// 获取当前系统机器码
@@ -429,10 +569,27 @@ async fn scan_solo_cn_path() -> Result<String> {
 }
 
 /// 刷新单个账号 Token
+/// 三段式（v1.0.37）：锁内取 cookies → 锁外 HTTP get_user_token → 锁内 apply_refreshed_token
 #[tauri::command]
 async fn refresh_token(account_id: String, state: State<'_, AppState>) -> Result<()> {
-    let mut manager = state.account_manager.lock().await;
-    manager.refresh_token(&account_id).await.map_err(Into::into)
+    // 1. 锁内快速取 cookies
+    let cookies = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_account_cookies(&account_id)
+            .ok_or_else(|| ApiError { message: "账号不存在或无 cookies，无法刷新 Token".to_string() })?
+    };
+
+    // 2. 锁外 HTTP 刷新 Token（不阻塞其他账号命令）
+    let mut client = TraeApiClient::new(&cookies)?;
+    let token_result = client.get_user_token().await?;
+
+    // 3. 锁内快速更新
+    {
+        let mut manager = state.account_manager.lock().await;
+        manager.apply_refreshed_token(&account_id, token_result.token, token_result.expired_at)?;
+    }
+    println!("[INFO] 手动刷新 Token 成功: {}", account_id);
+    Ok(())
 }
 
 /// 批量刷新所有即将过期的 Token
@@ -474,10 +631,29 @@ async fn refresh_all_tokens(state: State<'_, AppState>) -> Result<Vec<String>> {
 }
 
 /// 刷新单个账号资料（从云端获取最新用户名，v1.0.31+）
+/// 三段式（v1.0.37）：锁内取 jwt_token → 锁外 HTTP get_user_info_by_token → 锁内 apply_refreshed_profile
 #[tauri::command]
 async fn refresh_account_profile(account_id: String, state: State<'_, AppState>) -> Result<bool> {
-    let mut manager = state.account_manager.lock().await;
-    manager.refresh_account_profile(&account_id).await.map_err(Into::into)
+    // 1. 锁内快速取 jwt_token
+    let token = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_account_token(&account_id)
+            .ok_or_else(|| ApiError { message: "账号无 JWT Token，无法刷新资料".to_string() })?
+    };
+
+    // 2. 锁外 HTTP 拉取用户信息（不阻塞其他账号命令）
+    let client = TraeApiClient::new_with_token(&token)?;
+    let user_info = client.get_user_info_by_token().await?;
+
+    // 3. 锁内快速更新 name / avatar_url / email
+    let changed = {
+        let mut manager = state.account_manager.lock().await;
+        manager.apply_refreshed_profile(&account_id, &user_info)?
+    };
+    if changed {
+        println!("[INFO] 账号资料已更新: {}", account_id);
+    }
+    Ok(changed)
 }
 
 /// 批量刷新所有账号资料（v1.0.31+，启动时 + 定期轮询调用）

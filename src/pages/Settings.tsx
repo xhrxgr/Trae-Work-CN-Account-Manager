@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
+import { ConfirmModal } from "../components/ConfirmModal";
 
 interface SettingsProps {
   onToast?: (type: "success" | "error" | "warning" | "info", message: string) => void;
@@ -12,6 +13,19 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
   const [instanceMachineIds, setInstanceMachineIds] = useState<api.InstanceMachineIdInfo[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [clearingId, setClearingId] = useState<string | null>(null);
+
+  // 确认弹窗状态（M3：替换原生 confirm，统一 UX + 防重复点击）
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    type: "danger" | "warning" | "info";
+    onConfirm: () => void | Promise<void>;
+    isProcessing?: boolean;
+  } | null>(null);
+
+  const setConfirmProcessing = (processing: boolean) => {
+    setConfirmState((prev) => (prev ? { ...prev, isProcessing: processing } : prev));
+  };
 
   // 路径状态
   const [appPath, setAppPath] = useState<string>("");
@@ -68,22 +82,27 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
 
   // 清除指定实例的登录状态
   const handleClearInstanceLogin = async (instanceId: string, instanceName: string) => {
-    if (!confirm(`确定要清除实例「${instanceName}」的登录状态吗？\n\n这将：\n• 重置该实例的机器码\n• 清除该实例的登录信息\n• 删除本地缓存数据\n\n操作后该实例将变成全新状态，需要重新登录。\n\n请确保该实例已关闭！`)) {
-      return;
-    }
-
-    setClearingId(instanceId);
-    try {
-      const newMachineId = await api.clearInstanceLoginState(instanceId);
-      setInstanceMachineIds(prev => prev.map(item =>
-        item.id === instanceId ? { ...item, machine_id: newMachineId } : item
-      ));
-      onToast?.("success", `已清除「${instanceName}」的登录状态`);
-    } catch (err: any) {
-      onToast?.("error", err.message || "清除失败");
-    } finally {
-      setClearingId(null);
-    }
+    setConfirmState({
+      title: "清除实例登录状态",
+      message: `确定要清除实例「${instanceName}」的登录状态吗？\n\n这将：\n• 重置该实例的机器码\n• 清除该实例的登录信息\n• 删除本地缓存数据\n\n操作后该实例将变成全新状态，需要重新登录。\n\n请确保该实例已关闭！`,
+      type: "warning",
+      onConfirm: async () => {
+        setConfirmProcessing(true);
+        setClearingId(instanceId);
+        try {
+          const newMachineId = await api.clearInstanceLoginState(instanceId);
+          setInstanceMachineIds(prev => prev.map(item =>
+            item.id === instanceId ? { ...item, machine_id: newMachineId } : item
+          ));
+          onToast?.("success", `已清除「${instanceName}」的登录状态`);
+        } catch (err: any) {
+          onToast?.("error", err.message || "清除失败");
+        } finally {
+          setClearingId(null);
+        }
+        setConfirmState(null);
+      },
+    });
   };
 
   // 自动扫描路径
@@ -195,31 +214,43 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
 
   // 从备份恢复账号数据
   const handleRestoreBackup = async () => {
-    if (!confirm("确定要从备份恢复账号数据吗？\n\n这将覆盖当前所有账号，恢复到上次替换导入前的状态。")) {
-      return;
-    }
-    try {
-      const count = await api.restoreAccountBackup();
-      onToast?.("success", `已恢复 ${count} 个账号，备份已清理`);
-      onAccountsChanged?.();
-      checkBackupStatus();
-    } catch (err: any) {
-      onToast?.("error", err.message || "恢复失败");
-    }
+    setConfirmState({
+      title: "从备份恢复账号",
+      message: "确定要从备份恢复账号数据吗？\n\n这将覆盖当前所有账号，恢复到上次替换导入前的状态。",
+      type: "warning",
+      onConfirm: async () => {
+        setConfirmProcessing(true);
+        try {
+          const count = await api.restoreAccountBackup();
+          onToast?.("success", `已恢复 ${count} 个账号，备份已清理`);
+          onAccountsChanged?.();
+          checkBackupStatus();
+        } catch (err: any) {
+          onToast?.("error", err.message || "恢复失败");
+        }
+        setConfirmState(null);
+      },
+    });
   };
 
   // 删除备份文件
   const handleDeleteBackup = async () => {
-    if (!confirm("确定要删除账号备份文件吗？\n\n删除后将无法恢复到替换导入前的状态。")) {
-      return;
-    }
-    try {
-      await api.deleteAccountBackup();
-      onToast?.("success", "备份文件已删除");
-      setHasBackup(false);
-    } catch (err: any) {
-      onToast?.("error", err.message || "删除失败");
-    }
+    setConfirmState({
+      title: "删除备份文件",
+      message: "确定要删除账号备份文件吗？\n\n删除后将无法恢复到替换导入前的状态。",
+      type: "danger",
+      onConfirm: async () => {
+        setConfirmProcessing(true);
+        try {
+          await api.deleteAccountBackup();
+          onToast?.("success", "备份文件已删除");
+          setHasBackup(false);
+        } catch (err: any) {
+          onToast?.("error", err.message || "删除失败");
+        }
+        setConfirmState(null);
+      },
+    });
   };
 
   return (
@@ -411,9 +442,19 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
             <button
               className="machine-id-btn danger"
               onClick={() => {
-                if (confirm("替换导入会清除当前所有账号并替换为文件中的账号，确定继续吗？\n\n（替换前会自动备份当前账号到 accounts.json.bak，可在下方恢复）")) {
-                  handleImport(true);
-                }
+                setConfirmState({
+                  title: "替换导入",
+                  message: "替换导入会清除当前所有账号并替换为文件中的账号，确定继续吗？\n\n（替换前会自动备份当前账号到 accounts.json.bak，可在下方恢复）",
+                  type: "danger",
+                  onConfirm: async () => {
+                    setConfirmProcessing(true);
+                    try {
+                      await handleImport(true);
+                    } finally {
+                      setConfirmState(null);
+                    }
+                  },
+                });
               }}
               disabled={exporting || importing}
               title="替换导入：清除当前所有账号（自动备份）"
@@ -475,6 +516,21 @@ export function Settings({ onToast, onAccountsChanged }: SettingsProps) {
           </div>
         </div>
       </div>
+
+      {/* M3：统一确认弹窗 */}
+      {confirmState && (
+        <ConfirmModal
+          isOpen={true}
+          title={confirmState.title}
+          message={confirmState.message}
+          type={confirmState.type}
+          confirmText="确定"
+          cancelText="取消"
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => setConfirmState(null)}
+          isProcessing={confirmState.isProcessing}
+        />
+      )}
 
     </div>
   );

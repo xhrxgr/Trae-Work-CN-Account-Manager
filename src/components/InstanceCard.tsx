@@ -62,6 +62,11 @@ function formatResetTime(seconds: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+// 辅助：判断是否为 Free 身份（Free 账号不显示状态徽章，避免孤立分隔符）
+function isFreeStatus(status: InstanceAccountStatus): boolean {
+  return status.identity_str === "Free" || status.identity_str === "";
+}
+
 function AccountStatusBadge({
   status,
   isRefreshing,
@@ -71,7 +76,6 @@ function AccountStatusBadge({
   isRefreshing: boolean;
   onRefresh: () => void;
 }) {
-  const isFree = status.identity_str === "Free" || status.identity_str === "";
 
   // 字段含义说明（v1.0.21+）：
   // - "速通" = Express/Fast Pass，是对话的优先队列，有次数限制
@@ -81,7 +85,7 @@ function AccountStatusBadge({
 
   // 用户反馈：免费版一律不显示 badge（不管速通次数），避免误读
   // 只对非 Free 身份（Pro 等）才显示状态徽章
-  if (isFree) {
+  if (isFreeStatus(status)) {
     return null;
   }
 
@@ -181,7 +185,7 @@ export function InstanceCard({ instance, onLaunch, onContextMenu, onRefreshStatu
               )}
               <div className="muted">
                 {instance.bound_account_email || "无邮箱"}
-                {instance.account_status && (
+                {instance.account_status && !isFreeStatus(instance.account_status) && (
                   <>
                     {" · "}
                     <AccountStatusBadge
@@ -198,17 +202,21 @@ export function InstanceCard({ instance, onLaunch, onContextMenu, onRefreshStatu
           // 未绑定到本地账号，但 data-dir 的 storage.json 中有登录信息
           <div className="instance-account muted">
             未绑定（IDE 已登录 #{instance.account_status.user_id.slice(-6)}）
-            {" · "}
-            <AccountStatusBadge
-              status={instance.account_status}
-              isRefreshing={refreshing}
-              onRefresh={handleRefresh}
-            />
+            {instance.account_status && !isFreeStatus(instance.account_status) && (
+              <>
+                {" · "}
+                <AccountStatusBadge
+                  status={instance.account_status}
+                  isRefreshing={refreshing}
+                  onRefresh={handleRefresh}
+                />
+              </>
+            )}
           </div>
         ) : (
           <div className="instance-account muted">
             未绑定账号
-            {instance.account_status && (
+            {instance.account_status && !isFreeStatus(instance.account_status) && (
               <>
                 {" · "}
                 <AccountStatusBadge

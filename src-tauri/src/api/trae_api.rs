@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use reqwest::{header, Client};
 use serde_json::json;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use std::time::Duration;
 
 use super::types::*;
 
@@ -18,7 +19,10 @@ pub struct TraeApiClient {
 impl TraeApiClient {
     /// 创建新的 API 客户端（使用 Cookies）
     pub fn new(cookies: &str) -> Result<Self> {
+        // 关键修复（v1.0.36）：添加 30s 超时，避免网络挂起时无限等待导致 UI 卡死
         let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
             .build()?;
 
         // 清理 Cookie 字符串：移除换行符、多余空格
@@ -41,15 +45,23 @@ impl TraeApiClient {
     }
 
     /// 创建新的 API 客户端（使用 Token）
+    /// 关键修复（v1.0.36）：接受 api_base 参数，避免 SG 区域账号硬编码到 CN 端点导致请求失败
     pub fn new_with_token(token: &str) -> Result<Self> {
+        Self::new_with_token_and_base(token, API_BASE_CN)
+    }
+
+    /// 创建新的 API 客户端（使用 Token + 指定 API 端点）
+    pub fn new_with_token_and_base(token: &str, api_base: &str) -> Result<Self> {
         let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
             .build()?;
 
         Ok(Self {
             client,
             cookies: String::new(),
             jwt_token: Some(token.to_string()),
-            api_base: API_BASE_CN.to_string(),
+            api_base: api_base.to_string(),
         })
     }
 
@@ -115,7 +127,7 @@ impl TraeApiClient {
         //   }
         // 旧实现用 `{"IfWebPage": true}` + Authorization: Cloud-IDE-JWT，CN 免费版会返回纯数字 ScreenName
         let headers = self.build_headers_for_user_info()?;
-        let user_info_url = format!("{}/cloudide/api/v3/trae/GetUserInfo", API_BASE_CN);
+        let user_info_url = format!("{}/cloudide/api/v3/trae/GetUserInfo", self.api_base);
 
         let user_info_response = self
             .client
@@ -145,7 +157,7 @@ impl TraeApiClient {
         // 如果 GetUserInfo 失败，回退到 entitlement 接口
         // 注意：entitlement 接口用 Authorization: Cloud-IDE-JWT（不是 x-cloudide-token），需要重新构建 headers
         let mut last_error = anyhow!("API 请求失败");
-        let url = format!("{}/trae/api/v1/pay/user_current_entitlement_list", API_BASE_CN);
+        let url = format!("{}/trae/api/v1/pay/user_current_entitlement_list", self.api_base);
         let ent_headers = self.build_headers_token_only()?;
 
         let response = self
@@ -266,7 +278,7 @@ impl TraeApiClient {
 
     /// 获取用户信息
     pub async fn get_user_info(&self) -> Result<UserInfoResult> {
-        let url = format!("{}/cloudide/api/v3/trae/GetUserInfo", API_BASE_CN);
+        let url = format!("{}/cloudide/api/v3/trae/GetUserInfo", self.api_base);
         let headers = self.build_headers(false)?;
 
         let response = self
@@ -320,7 +332,7 @@ impl TraeApiClient {
     /// 通过 Token 获取使用量汇总
     pub async fn get_usage_summary_by_token(&self) -> Result<UsageSummary> {
         let headers = self.build_headers_token_only()?;
-        let url = format!("{}/trae/api/v1/pay/user_current_entitlement_list", API_BASE_CN);
+        let url = format!("{}/trae/api/v1/pay/user_current_entitlement_list", self.api_base);
         println!("[DEBUG] Trying API endpoint: {}", url);
 
         let response = self

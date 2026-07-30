@@ -611,9 +611,11 @@ impl AccountManager {
 
         let count = if overwrite {
             // 替换模式：先备份当前数据到 .bak（保险措施，可恢复）
+            // 关键修复（v1.0.36）：备份失败必须中止，否则清空后旧数据永久丢失
             if self.data_path.exists() {
                 let bak_path = self.data_path.with_extension("json.bak");
-                let _ = fs::copy(&self.data_path, &bak_path);
+                fs::copy(&self.data_path, &bak_path)
+                    .map_err(|e| anyhow!("备份旧账号数据失败，已中止替换导入以防数据丢失: {}", e))?;
                 println!("[INFO] 已备份旧账号数据到 {}", bak_path.display());
             }
             // 清空现有账号，直接导入
@@ -1115,5 +1117,83 @@ impl AccountManager {
             self.save_store()?;
         }
         Ok(changed)
+    }
+
+    // ===== 三段式重构（v1.0.37）：单账号命令的锁内 collect / 锁内 apply =====
+    // 目的：将 HTTP 请求与进程启动从持锁期间移到锁外，避免 UI 卡顿。
+    // 这些方法仅做内存数据读写，不调用任何 HTTP / 进程启动 API。
+
+    /// 收集账号 cookies（锁内快速调用，不做 HTTP）
+    /// 用于 refresh_token 命令的锁外 HTTP 阶段
+    /// 返回 None 表示账号不存在或 cookies 为空（无法刷新）
+    pub fn collect_account_cookies(&self, account_id: &str) -> Option<String> {
+        self.store.accounts.iter()
+            .find(|a| a.id == account_id)
+            .map(|a| a.cookies.clone())
+            .filter(|c| !c.is_empty())
+    }
+
+    /// 收集账号 jwt_token（锁内快速调用，不做 HTTP）
+    /// 用于 refresh_account_profile 命令的锁外 HTTP 阶段
+    /// 返回 None 表示账号不存在或无 jwt_token
+    pub fn collect_account_token(&self, account_id: &str) -> Option<String> {
+        self.store.accounts.iter()
+            .find(|a| a.id == account_id)
+            .and_then(|a| a.jwt_token.clone())
+    }
+
+    /// 收集账号的 (jwt_token, cookies)（锁内快速调用，不做 HTTP）
+    /// 用于 get_account_usage 命令的锁外 HTTP 阶段
+    /// 返回 None 表示账号不存在
+    pub fn collect_account_for_usage(&self, account_id: &str) -> Option<(Option<String>, Option<String>)> {
+        self.store.accounts.iter()
+            .find(|a| a.id == account_id)
+            .map(|a| (
+                a.jwt_token.clone(),
+                if a.cookies.is_empty() { None } else { Some(a.cookies.clone()) },
+            ))
+    }
+
+    /// 应用刷新后的使用量（锁内快速调用，不做 HTTP）
+    /// 仅更新 plan_type 与 updated_at，并落盘
+    pub fn apply_refreshed_usage(&mut self, account_id: &str, summary: &UsageSummary) -> Result<()> {
+        let acc = self.store.accounts.iter_mut()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| anyhow!("账号不存在"))?;
+        acc.plan_type = summary.plan_type.clone();
+        acc.updated_at = chrono::Utc::now().timestamp();
+        self.save_store()?;
+        Ok(())
+    }
+
+    /// 收集账号的 user_id（锁内快速调用，不做 HTTP）
+    /// 用于 update_account_token 命令在锁外做 token 用户匹配校验
+    /// 返回 None 表示账号不存在
+    pub fn collect_account_user_id(&self, account_id: &str) -> Option<String> {
+        self.store.accounts.iter()
+            .find(|a| a.id == account_id)
+            .map(|a| a.user_id.clone())
+    }
+
+    /// 应用更新的 Token + 使用量（锁内快速调用，不做 HTTP）
+    /// 校验 expected_user_id 与账号 user_id 一致后才写入，避免 token 被串到其他账号
+    pub fn apply_updated_token(
+        &mut self,
+        account_id: &str,
+        new_token: String,
+        expected_user_id: &str,
+        summary: &UsageSummary,
+    ) -> Result<()> {
+        let acc = self.store.accounts.iter_mut()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| anyhow!("账号不存在"))?;
+        if acc.user_id != expected_user_id {
+            return Err(anyhow!("Token 对应的用户与当前账号不匹配"));
+        }
+        acc.jwt_token = Some(new_token);
+        acc.plan_type = summary.plan_type.clone();
+        acc.updated_at = chrono::Utc::now().timestamp();
+        self.save_store()?;
+        Ok(())
     }
 }

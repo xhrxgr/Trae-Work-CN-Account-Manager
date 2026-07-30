@@ -30,6 +30,22 @@ pub struct SafeCleanItem {
     pub description: String,
 }
 
+/// 三段式重构（v1.0.37）：实例启动前的准备数据
+/// 在 instance_manager 锁内收集，锁外做文件 I/O + 进程启动，最后回到锁内 apply。
+/// is_running=true 时 login_info 必为 None（避免覆盖 TRAE 运行期间刷新的 token）。
+pub struct InstanceLaunchContext {
+    /// 实例的 data_dir，用于锁外写登录信息 / 启动进程
+    pub data_dir: String,
+    /// 实例名（用于窗口标题）
+    pub inst_name: String,
+    /// 登录信息（None 表示不写 storage.json：实例运行中、未绑定账号、或同账号已登录）
+    pub login_info: Option<machine::TraeLoginInfo>,
+    /// 账号绑定的机器码（与 login_info 配对，写 storage.json 时使用）
+    pub machine_id: Option<String>,
+    /// 实例启动前是否已在运行
+    pub is_running: bool,
+}
+
 /// 实例管理器
 pub struct InstanceManager {
     store: InstanceStore,
@@ -48,7 +64,19 @@ impl InstanceManager {
         let data_path = Self::get_data_path()?;
         let mut store = if data_path.exists() {
             let content = fs::read_to_string(&data_path)?;
-            serde_json::from_str(&content).unwrap_or_default()
+            // 关键修复（v1.0.36）：解析失败时备份损坏文件并返回错误，不静默清空
+            // 旧逻辑用 unwrap_or_default() 会吞掉解析错误并返回空 store，导致所有实例消失
+            match serde_json::from_str::<InstanceStore>(&content) {
+                Ok(s) => s,
+                Err(e) => {
+                    let bak_path = data_path.with_extension("json.corrupt.bak");
+                    let _ = fs::copy(&data_path, &bak_path);
+                    return Err(anyhow!(
+                        "instances.json 解析失败（已备份到 {}）: {}。请手动修复或删除后重启。",
+                        bak_path.display(), e
+                    ));
+                }
+            }
         } else {
             // 首次启动：执行迁移
             Self::migrate_from_accounts(account_manager)?
@@ -835,6 +863,152 @@ impl InstanceManager {
         }
 
         Ok(is_running) // 返回启动前是否已在运行
+    }
+
+    // ===== 三段式重构（v1.0.37）：bind_account / launch_instance 拆分 =====
+    // 锁内 prepare 收集数据 → 锁外做文件 I/O + 进程启动 → 锁内 apply 更新时间戳
+    // 仅 prepare 方法持有 instance_manager 锁与 account_manager 锁（按 account → instance 顺序），
+    // 且 prepare 内不调用 HTTP / 进程启动，仅做内存读取 + 单次小文件读（storage.json 的 existing_user_id 检查）。
+
+    /// 收集 bind_account_to_instance 命令所需数据（锁内快速调用）
+    /// - 校验实例存在
+    /// - 校验账号存在且有 jwt_token（若 account_id 为 Some）
+    /// - 检查实例运行状态：运行中则不写 login_info（保留 TRAE 刷新的 token）
+    pub fn prepare_bind_account_context(
+        &self,
+        instance_id: &str,
+        account_id: Option<&str>,
+        account_manager: &AccountManager,
+    ) -> Result<InstanceLaunchContext> {
+        let inst = self.store.instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| anyhow!("实例不存在"))?;
+
+        let data_dir = inst.data_dir.clone();
+        let inst_name = inst.name.clone();
+
+        let (mut login_info, mut machine_id) = (None, None);
+        if let Some(aid) = account_id {
+            let account = account_manager.get_account_ref(aid)
+                .ok_or_else(|| anyhow!("账号不存在"))?;
+            let token = account.jwt_token.as_ref()
+                .ok_or_else(|| anyhow!("账号没有有效 Token"))?;
+
+            login_info = Some(machine::TraeLoginInfo {
+                token: token.clone(),
+                refresh_token: account.refresh_token.clone(),
+                user_id: account.user_id.clone(),
+                email: account.email.clone(),
+                username: account.name.clone(),
+                avatar_url: account.avatar_url.clone(),
+                host: String::new(),
+                region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+            });
+            machine_id = account.machine_id.clone();
+        }
+
+        let is_running = machine::is_instance_running(&data_dir).0;
+        // 实例已运行时不写入，避免覆盖 TRAE 运行中刷新的 token
+        if is_running {
+            println!("[INFO] 实例正在运行，跳过写入登录信息（避免覆盖 TRAE 刷新的 token）");
+            login_info = None;
+            machine_id = None;
+        }
+
+        Ok(InstanceLaunchContext { data_dir, inst_name, login_info, machine_id, is_running })
+    }
+
+    /// 应用 bind_account_to_instance 结果（锁内快速调用）
+    /// 仅更新 bound_account_id + updated_at 并落盘，不做任何 I/O
+    pub fn apply_bound_account(
+        &mut self,
+        instance_id: &str,
+        account_id: Option<&str>,
+    ) -> Result<()> {
+        let inst = self.store.instances.iter_mut()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| anyhow!("实例不存在"))?;
+        inst.bound_account_id = account_id.map(|s| s.to_string());
+        inst.updated_at = chrono::Utc::now().timestamp();
+        self.save_store()?;
+        Ok(())
+    }
+
+    /// 收集 launch_instance 命令所需数据（锁内快速调用）
+    /// - 校验实例存在
+    /// - 若实例未运行且绑定了账号：检查 storage.json 现有登录用户
+    ///   若与绑定账号 user_id 不同才构造 login_info（避免覆盖 TRAE 刷新的 token）
+    pub fn prepare_launch_context(
+        &self,
+        instance_id: &str,
+        account_manager: &AccountManager,
+    ) -> Result<InstanceLaunchContext> {
+        let inst = self.store.instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| anyhow!("实例不存在"))?;
+
+        let data_dir = inst.data_dir.clone();
+        let inst_name = inst.name.clone();
+        let bound_account_id = inst.bound_account_id.clone();
+
+        let is_running = machine::is_instance_running(&data_dir).0;
+
+        let mut login_info: Option<machine::TraeLoginInfo> = None;
+        let mut machine_id: Option<String> = None;
+
+        // 关键修复：实例已运行时不重写 storage.json，避免覆盖 TRAE 运行期间刷新的 token
+        if !is_running {
+            if let Some(ref aid) = bound_account_id {
+                if let Some(account) = account_manager.get_account_ref(aid) {
+                    if let Some(token) = account.jwt_token.as_ref() {
+                        // 检查 storage.json 是否已有同一用户的登录信息
+                        // 如果已有，不覆盖（TRAE 可能已刷新 token，覆盖会导致登录失效）
+                        let existing_user_id = machine::read_trae_login_from_dir(&data_dir)
+                            .ok()
+                            .flatten()
+                            .map(|info| info.user_id);
+
+                        let should_write = match existing_user_id {
+                            Some(existing_uid) => existing_uid != account.user_id,
+                            None => true, // 无现有登录信息，需要写入
+                        };
+
+                        if should_write {
+                            login_info = Some(machine::TraeLoginInfo {
+                                token: token.clone(),
+                                refresh_token: account.refresh_token.clone(),
+                                user_id: account.user_id.clone(),
+                                email: account.email.clone(),
+                                username: account.name.clone(),
+                                avatar_url: account.avatar_url.clone(),
+                                host: String::new(),
+                                region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+                            });
+                            machine_id = account.machine_id.clone();
+                        } else {
+                            println!("[INFO] storage.json 已有该账号登录信息，跳过覆盖（保留 TRAE 刷新的 token）");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(InstanceLaunchContext { data_dir, inst_name, login_info, machine_id, is_running })
+    }
+
+    /// 应用 launch_instance 结果（锁内快速调用）
+    /// 仅更新 last_launched_at + updated_at 并落盘，不做任何 I/O
+    pub fn apply_launched(&mut self, instance_id: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        if let Some(inst) = self.store.instances.iter_mut().find(|i| i.id == instance_id) {
+            inst.last_launched_at = now;
+            inst.updated_at = now;
+        }
+        // 保存到磁盘（失败不阻断主流程）
+        if let Err(e) = self.save_store() {
+            println!("[WARN] 保存 last_launched_at 失败: {}", e);
+        }
+        Ok(())
     }
 
     /// 打开实例数据目录

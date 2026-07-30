@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as api from "../api";
 import type { InstanceBrief, AccountBrief, SafeCleanItem } from "../types";
 import { InstanceCard } from "../components/InstanceCard";
@@ -59,14 +59,24 @@ export function Instances({ accounts, onRefreshAccounts, onToast }: InstancesPro
     cleaning: boolean;
   } | null>(null);
 
+  // 关键修复（v1.0.36）：用请求序号防止轮询竞态
+  // 后发先至的请求会用旧数据覆盖最新数据，序号保证只有最后一次请求的结果才会更新 state
+  const loadSeqRef = useRef(0);
+
   const loadInstances = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     try {
       const list = await api.listInstances();
-      setInstances(list);
+      // 只有最后一次请求的结果才会更新 state，避免旧请求覆盖新数据
+      if (seq === loadSeqRef.current) {
+        setInstances(list);
+      }
     } catch (err) {
       console.error("加载实例失败:", err);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -245,15 +255,12 @@ export function Instances({ accounts, onRefreshAccounts, onToast }: InstancesPro
     });
     try {
       const items = await api.getSafeCleanItems(instanceId);
-      // 默认勾选全部项（全部为 100% 安全可删）
-      const selected = new Set(items.map((it) => it.key));
-      setSafeCleanModal({
-        instanceId,
-        instanceName: inst.name,
-        items,
-        selected,
-        loading: false,
-        cleaning: false,
+      // 关键修复（v1.0.36）：API 返回前检查弹窗是否已被用户关闭，避免"弹窗复活"
+      setSafeCleanModal((prev) => {
+        if (!prev || prev.instanceId !== instanceId) return prev;
+        // 默认勾选全部项（全部为 100% 安全可删）
+        const selected = new Set(items.map((it) => it.key));
+        return { ...prev, items, selected, loading: false };
       });
     } catch (err: any) {
       addToast("error", err.message || "获取清理项失败");
@@ -363,23 +370,23 @@ export function Instances({ accounts, onRefreshAccounts, onToast }: InstancesPro
           y={contextMenu.y}
           contextType="instance"
           onClose={() => setContextMenu(null)}
-          onViewDetail={() => {
+          onPrimaryAction={() => {
             handleLaunch(contextMenu.instanceId);
             setContextMenu(null);
           }}
-          onUpdateToken={() => {
+          onSecondaryAction={() => {
             handleSwitchAccount(contextMenu.instanceId);
             setContextMenu(null);
           }}
-          onCopyToken={() => {
+          onTertiaryAction={() => {
             handleOpenDataDir(contextMenu.instanceId);
             setContextMenu(null);
           }}
-          onSwitchAccount={() => {
+          onQuaternaryAction={() => {
             handleCreateShortcut(contextMenu.instanceId);
             setContextMenu(null);
           }}
-          onLaunchMulti={() => {
+          onExtraAction={() => {
             handleRename(contextMenu.instanceId);
             setContextMenu(null);
           }}
