@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tauri::State;
 
 use account::{AccountBrief, AccountManager, Account, BrowserUserInfo};
-use api::UsageSummary;
+use api::{TraeApiClient, UsageSummary};
 use instance::{InstanceBrief, InstanceManager, TraeInstance};
 use machine::InstanceAccountStatus;
 
@@ -436,10 +436,41 @@ async fn refresh_token(account_id: String, state: State<'_, AppState>) -> Result
 }
 
 /// 批量刷新所有即将过期的 Token
+/// 拆分为：锁内取数据 → 锁外 HTTP → 锁内更新，避免长时间持锁阻塞其他命令
 #[tauri::command]
 async fn refresh_all_tokens(state: State<'_, AppState>) -> Result<Vec<String>> {
-    let mut manager = state.account_manager.lock().await;
-    manager.refresh_all_tokens().await.map_err(Into::into)
+    // 1. 锁内快速收集需要刷新的账号
+    let accounts_to_refresh: Vec<(String, String)> = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_tokens_to_refresh()
+    };
+
+    // 2. 锁外逐个 HTTP 刷新（不阻塞其他 Tauri 命令）
+    let mut refreshed = Vec::new();
+    for (id, cookies) in accounts_to_refresh {
+        match TraeApiClient::new(&cookies) {
+            Ok(mut client) => {
+                match client.get_user_token().await {
+                    Ok(result) => {
+                        // 3. 锁内快速更新
+                        {
+                            let mut manager = state.account_manager.lock().await;
+                            manager.apply_refreshed_token(&id, result.token, result.expired_at)?;
+                        }
+                        println!("[INFO] 自动刷新 Token 成功: {}", id);
+                        refreshed.push(id);
+                    }
+                    Err(e) => {
+                        println!("[WARN] 自动刷新 Token 失败 {}: {}", id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[WARN] 创建 API 客户端失败 {}: {}", id, e);
+            }
+        }
+    }
+    Ok(refreshed)
 }
 
 /// 刷新单个账号资料（从云端获取最新用户名，v1.0.31+）
@@ -450,10 +481,43 @@ async fn refresh_account_profile(account_id: String, state: State<'_, AppState>)
 }
 
 /// 批量刷新所有账号资料（v1.0.31+，启动时 + 定期轮询调用）
+/// 拆分为：锁内取数据 → 锁外 HTTP → 锁内更新，避免长时间持锁阻塞其他命令
 #[tauri::command]
 async fn refresh_all_profiles(state: State<'_, AppState>) -> Result<Vec<String>> {
-    let mut manager = state.account_manager.lock().await;
-    Ok(manager.refresh_all_profiles().await)
+    // 1. 锁内快速收集需要刷新的账号
+    let accounts_to_refresh: Vec<(String, String)> = {
+        let manager = state.account_manager.lock().await;
+        manager.collect_profiles_to_refresh()
+    };
+
+    // 2. 锁外逐个 HTTP 刷新（不阻塞其他 Tauri 命令）
+    let mut changed_ids = Vec::new();
+    for (id, token) in accounts_to_refresh {
+        match TraeApiClient::new_with_token(&token) {
+            Ok(client) => {
+                match client.get_user_info_by_token().await {
+                    Ok(user_info) => {
+                        // 3. 锁内快速更新
+                        let changed = {
+                            let mut manager = state.account_manager.lock().await;
+                            manager.apply_refreshed_profile(&id, &user_info)?
+                        };
+                        if changed {
+                            println!("[INFO] 账号资料已更新: {}", id);
+                            changed_ids.push(id);
+                        }
+                    }
+                    Err(e) => {
+                        println!("[WARN] 刷新账号资料失败 {}: {}", id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[WARN] 创建 API 客户端失败 {}: {}", id, e);
+            }
+        }
+    }
+    Ok(changed_ids)
 }
 
 /// 浏览器登录

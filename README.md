@@ -4,9 +4,9 @@
 
 **一款用于管理 TRAE Work CN 多账号与多实例的桌面工具**
 
-[![Version](https://img.shields.io/badge/version-1.0.22-00B4D8?style=flat-square)](../../releases)
+[![Version](https://img.shields.io/badge/version-1.0.35-00B4D8?style=flat-square)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square&logo=windows&logoColor=white)](../../releases)
-[![License](https://img.shields.io/badge/license-MIT-FF6B35?style=flat-square)](./LICENSE)
+[![License](https://img.shields.io/badge/license-NonCommercial-FF6B35?style=flat-square)](./LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=black)](https://tauri.app/)
 
 </div>
@@ -177,4 +177,9 @@ src/
 
 ## License
 
-[MIT License](./LICENSE)
+本项目基于 [Yang-505/Trae-Account-Manager](https://github.com/Yang-505/Trae-Account-Manager)（MIT 许可证）修改和扩展。
+
+- **原项目代码**：遵循 [MIT 许可证](./LICENSE-MIT)，允许商业使用
+- **本项目新增及修改部分**：采用[非商业使用许可协议](./LICENSE)，禁止任何形式的商业用途
+
+分发时必须同时保留 LICENSE 和 LICENSE-MIT 两个文件。

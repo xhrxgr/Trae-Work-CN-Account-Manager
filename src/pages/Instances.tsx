@@ -5,18 +5,18 @@ import { InstanceCard } from "../components/InstanceCard";
 import { CreateInstanceModal } from "../components/CreateInstanceModal";
 import { ContextMenu } from "../components/ContextMenu";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { useToast } from "../hooks/useToast";
 
 interface InstancesProps {
   accounts: AccountBrief[];
   onRefreshAccounts: () => void;
+  onToast: (type: "success" | "error" | "warning" | "info", message: string) => void;
 }
 
-export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
+export function Instances({ accounts, onRefreshAccounts, onToast }: InstancesProps) {
+  const addToast = onToast;
   const [instances, setInstances] = useState<InstanceBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const { addToast } = useToast();
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -73,8 +73,21 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
   useEffect(() => {
     loadInstances();
     // 每 15 秒刷新运行状态（后端有 5 分钟磁盘占用缓存，不会重复计算）
-    const interval = setInterval(loadInstances, 15000);
-    return () => clearInterval(interval);
+    let interval = setInterval(loadInstances, 15000);
+    // 页面不可见时暂停轮询，可见时恢复 + 立即刷新一次
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        loadInstances();
+        interval = setInterval(loadInstances, 15000);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [loadInstances]);
 
   // 启动实例（先弹确认框，避免误触直接打开 TRAE）
@@ -130,7 +143,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
     try {
       await api.openInstanceDataDir(instanceId);
     } catch (err: any) {
-      alert(err.message || "打开失败");
+      addToast("error", err.message || "打开失败");
     }
   };
 
@@ -138,9 +151,9 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
   const handleCreateShortcut = async (instanceId: string) => {
     try {
       const path = await api.createInstanceShortcut(instanceId);
-      alert(`快捷方式已创建: ${path}`);
+      addToast("success", `快捷方式已创建: ${path}`);
     } catch (err: any) {
-      alert(err.message || "创建失败");
+      addToast("error", err.message || "创建失败");
     }
   };
 
@@ -186,8 +199,9 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       await api.renameInstance(renameModal.instanceId, renameModal.name);
       setRenameModal(null);
       await loadInstances();
+      addToast("success", "实例已重命名");
     } catch (err: any) {
-      alert(err.message || "重命名失败");
+      addToast("error", err.message || "重命名失败");
     }
   };
 
@@ -288,8 +302,9 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       setAccountSelectModal(null);
       await loadInstances();
       onRefreshAccounts();
+      addToast("success", "账号已绑定");
     } catch (err: any) {
-      alert(err.message || "绑定失败");
+      addToast("error", err.message || "绑定失败");
     }
   };
 
@@ -338,6 +353,7 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
             setShowCreateModal(false);
             loadInstances();
           }}
+          onToast={addToast}
         />
       )}
 
@@ -401,20 +417,30 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       {renameModal && (
         <div className="modal-overlay" onClick={() => setRenameModal(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>重命名实例</h2>
-            <input
-              type="text"
-              value={renameModal.name}
-              onChange={(e) => setRenameModal({ ...renameModal, name: e.target.value })}
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setRenameModal(null)}>
-                取消
+            <div className="modal-header-fixed">
+              <h2>重命名实例</h2>
+              <button className="modal-close-btn" onClick={() => setRenameModal(null)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
               </button>
-              <button className="btn-primary" onClick={handleRenameSubmit}>
-                确定
-              </button>
+            </div>
+            <div className="modal-body-scrollable">
+              <div className="form-section">
+                <label className="form-label">实例名称</label>
+                <input
+                  type="text"
+                  value={renameModal.name}
+                  onChange={(e) => setRenameModal({ ...renameModal, name: e.target.value })}
+                  placeholder="输入实例名称..."
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="modal-actions-fixed">
+              <button type="button" onClick={() => setRenameModal(null)}>取消</button>
+              <button type="button" className="primary" onClick={handleRenameSubmit}>保存</button>
             </div>
           </div>
         </div>
@@ -457,32 +483,42 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       {accountSelectModal && (
         <div className="modal-overlay" onClick={() => setAccountSelectModal(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>选择账号</h2>
-            <div className="account-list">
-              {accounts.map((acc) => (
-                <div
-                  key={acc.id}
-                  className="account-select-item"
-                  onClick={() => handleBindAccount(acc.id)}
-                >
-                  {acc.avatar_url && (
-                    <img src={acc.avatar_url} alt="" className="avatar" />
-                  )}
-                  <div>
+            <div className="modal-header-fixed">
+              <h2>选择账号</h2>
+              <button className="modal-close-btn" onClick={() => setAccountSelectModal(null)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body-scrollable">
+              <div className="account-list">
+                {accounts.map((acc) => (
+                  <div
+                    key={acc.id}
+                    className="account-select-item"
+                    onClick={() => handleBindAccount(acc.id)}
+                  >
+                    {acc.avatar_url && (
+                      <img src={acc.avatar_url} alt="" className="avatar" />
+                    )}
                     <div>
-                      {acc.note
-                        ? `${acc.name} · ${acc.note}`
-                        : acc.name}
+                      <div>
+                        {acc.note
+                          ? `${acc.name} · ${acc.note}`
+                          : acc.name}
+                      </div>
+                      <div className="muted">{acc.email}</div>
                     </div>
-                    <div className="muted">{acc.email}</div>
                   </div>
+                ))}
+                <div
+                  className="account-select-item"
+                  onClick={() => handleBindAccount(null)}
+                >
+                  <div className="muted">不绑定（首次启动手动登录）</div>
                 </div>
-              ))}
-              <div
-                className="account-select-item"
-                onClick={() => handleBindAccount(null)}
-              >
-                <div className="muted">不绑定（首次启动手动登录）</div>
               </div>
             </div>
           </div>
@@ -492,64 +528,75 @@ export function Instances({ accounts, onRefreshAccounts }: InstancesProps) {
       {safeCleanModal && (
         <div className="modal-overlay" onClick={safeCleanModal.cleaning ? undefined : () => setSafeCleanModal(null)}>
           <div className="modal-content safe-clean-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>安全清理 - {safeCleanModal.instanceName}</h2>
-            <p className="safe-clean-hint">
-              以下均为可安全删除的缓存、日志、崩溃转储，删除后下次启动自动重建。
-              不影响登录信息、用户设置、插件数据、聊天记录。
-              <br />
-              <strong>实例运行中时无法清理，请先关闭实例。</strong>
-            </p>
-            {safeCleanModal.loading ? (
-              <p>正在扫描可清理项...</p>
-            ) : (
-              <>
-                <div className="safe-clean-list">
-                  {safeCleanModal.items.map((item) => (
-                    <label key={item.key} className="safe-clean-item" title={item.description}>
-                      <div className="safe-clean-item-main">
-                        <input
-                          type="checkbox"
-                          checked={safeCleanModal.selected.has(item.key)}
-                          onChange={() => handleSafeCleanToggle(item.key)}
-                          disabled={safeCleanModal.cleaning}
-                        />
-                        <div className="safe-clean-item-info">
-                          <div className="safe-clean-item-label">
-                            {item.label}
-                            <span className="safe-clean-item-path">{item.path}</span>
+            <div className="modal-header-fixed">
+              <h2>安全清理 - {safeCleanModal.instanceName}</h2>
+              <button className="modal-close-btn" onClick={() => safeCleanModal.cleaning ? undefined : setSafeCleanModal(null)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body-scrollable">
+              <p className="safe-clean-hint">
+                以下均为可安全删除的缓存、日志、崩溃转储，删除后下次启动自动重建。
+                不影响登录信息、用户设置、插件数据、聊天记录。
+                <br />
+                <strong>实例运行中时无法清理，请先关闭实例。</strong>
+              </p>
+              {safeCleanModal.loading ? (
+                <p>正在扫描可清理项...</p>
+              ) : (
+                <>
+                  <div className="safe-clean-list">
+                    {safeCleanModal.items.map((item) => (
+                      <label key={item.key} className="safe-clean-item" title={item.description}>
+                        <div className="safe-clean-item-main">
+                          <input
+                            type="checkbox"
+                            checked={safeCleanModal.selected.has(item.key)}
+                            onChange={() => handleSafeCleanToggle(item.key)}
+                            disabled={safeCleanModal.cleaning}
+                          />
+                          <div className="safe-clean-item-info">
+                            <div className="safe-clean-item-label">
+                              {item.label}
+                              <span className="safe-clean-item-path">{item.path}</span>
+                            </div>
+                            <div className="safe-clean-item-desc">{item.description}</div>
                           </div>
-                          <div className="safe-clean-item-desc">{item.description}</div>
                         </div>
-                      </div>
-                      <div className="safe-clean-item-size">
-                        {item.size_bytes > 0
-                          ? `${(item.size_bytes / 1024 / 1024).toFixed(1)} MB`
-                          : "0 B"}
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                <div className="safe-clean-total">
-                  预计释放：
-                  {(() => {
-                    const total = safeCleanModal.items
-                      .filter((it) => safeCleanModal.selected.has(it.key))
-                      .reduce((sum, it) => sum + it.size_bytes, 0);
-                    return `${(total / 1024 / 1024).toFixed(1)} MB`;
-                  })()}
-                </div>
-              </>
-            )}
-            <div className="modal-actions">
+                        <div className="safe-clean-item-size">
+                          {item.size_bytes > 0
+                            ? `${(item.size_bytes / 1024 / 1024).toFixed(1)} MB`
+                            : "0 B"}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="safe-clean-total">
+                    预计释放：
+                    {(() => {
+                      const total = safeCleanModal.items
+                        .filter((it) => safeCleanModal.selected.has(it.key))
+                        .reduce((sum, it) => sum + it.size_bytes, 0);
+                      return `${(total / 1024 / 1024).toFixed(1)} MB`;
+                    })()}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-actions-fixed">
               <button
-                className="btn-secondary"
+                type="button"
                 onClick={() => setSafeCleanModal(null)}
                 disabled={safeCleanModal.cleaning}
               >
                 取消
               </button>
               <button
-                className="btn-primary"
+                type="button"
+                className="primary"
                 onClick={handleSafeCleanSubmit}
                 disabled={safeCleanModal.loading || safeCleanModal.cleaning || safeCleanModal.selected.size === 0}
               >

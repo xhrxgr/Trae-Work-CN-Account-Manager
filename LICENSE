@@ -1,21 +1,31 @@
-MIT License
+TRAE Work CN Account Manager 非商业使用许可协议
 
-Copyright (c) 2025
+Copyright (c) 2025-2026 xhrxgr
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+本项目基于 Yang-505/Trae-Account-Manager（MIT 许可证）修改和扩展。
+原项目代码遵循 MIT 许可证，保留于 LICENSE-MIT 文件中。
+本项目新增和修改的代码受本许可证约束。
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. 授权范围
+   在遵守本协议的前提下，您被授予以下权利：
+   - 个人学习、研究和技术交流
+   - 修改和分发本软件的副本
+   - 在非商业场景中使用本软件
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. 禁止商业使用
+   本项目新增及修改部分不得用于任何商业目的，包括但不限于：
+   - 销售、出租、许可或以其他方式变现
+   - 用于提供付费服务或商业 SaaS 平台
+   - 集成到商业产品中销售或分发
+   - 用于企业内部商业运营环境
+   如需商业使用，须获得作者书面授权。
+
+3. 分发条件
+   分发本软件时，必须同时保留本许可证文件和 LICENSE-MIT 文件。
+
+4. 第三方组件
+   本软件依赖的第三方库各自遵循其原始许可证。
+
+5. 免责声明
+   本软件按"现状"提供，不提供任何明示或暗示的担保。
+   作者不对使用本软件造成的任何损失承担责任。

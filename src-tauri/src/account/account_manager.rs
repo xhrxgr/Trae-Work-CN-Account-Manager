@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use base64::Engine;
 
 use super::types::*;
-use crate::api::{TraeApiClient, UsageSummary};
+use crate::api::{TraeApiClient, UsageSummary, TokenUserInfo};
 
 /// 从 JWT token 中提取 exp 字段（解析 payload 中的 exp 时间戳并格式化为 RFC3339 字符串）
 fn jwt_exp_from_token(token: &str) -> Option<String> {
@@ -1044,5 +1044,76 @@ impl AccountManager {
             }
         }
         Ok(refreshed)
+    }
+
+    /// 收集需要刷新 Token 的账号（锁内快速调用，不做 HTTP）
+    /// 返回 (account_id, cookies) 列表
+    pub fn collect_tokens_to_refresh(&self) -> Vec<(String, String)> {
+        self.store.accounts.iter()
+            .filter(|a| !a.cookies.is_empty())
+            .filter(|a| Self::is_token_expiring_soon(a))
+            .map(|a| (a.id.clone(), a.cookies.clone()))
+            .collect()
+    }
+
+    /// 应用刷新后的 Token（锁内快速调用，不做 HTTP）
+    pub fn apply_refreshed_token(&mut self, account_id: &str, token: String, expired_at: String) -> Result<()> {
+        if let Some(acc) = self.store.accounts.iter_mut().find(|a| a.id == account_id) {
+            acc.jwt_token = Some(token);
+            acc.token_expired_at = Some(expired_at);
+            acc.updated_at = chrono::Utc::now().timestamp();
+        }
+        self.save_store()?;
+        Ok(())
+    }
+
+    /// 收集需要刷新资料的账号（锁内快速调用，不做 HTTP）
+    /// 返回 (account_id, jwt_token) 列表
+    pub fn collect_profiles_to_refresh(&self) -> Vec<(String, String)> {
+        self.store.accounts.iter()
+            .filter(|a| a.jwt_token.is_some())
+            .map(|a| (a.id.clone(), a.jwt_token.as_ref().unwrap().clone()))
+            .collect()
+    }
+
+    /// 应用刷新后的账号资料（锁内快速调用，不做 HTTP）
+    /// 返回是否有变化
+    pub fn apply_refreshed_profile(&mut self, account_id: &str, user_info: &TokenUserInfo) -> Result<bool> {
+        let mut changed = false;
+        if let Some(acc) = self.store.accounts.iter_mut().find(|a| a.id == account_id) {
+            // 修复历史数据：纯数字 name 回退为占位形式
+            if !acc.name.is_empty() && acc.name.chars().all(|c| c.is_ascii_digit()) {
+                let placeholder = format!("用户{}", acc.user_id);
+                if acc.name != placeholder {
+                    acc.name = placeholder;
+                    changed = true;
+                }
+            }
+            if let Some(ref screen_name) = user_info.screen_name {
+                if !screen_name.is_empty() && !screen_name.chars().all(|c| c.is_ascii_digit()) && acc.name != *screen_name {
+                    acc.name = screen_name.clone();
+                    changed = true;
+                }
+            }
+            if let Some(ref avatar) = user_info.avatar_url {
+                if !avatar.is_empty() && acc.avatar_url != *avatar {
+                    acc.avatar_url = avatar.clone();
+                    changed = true;
+                }
+            }
+            if let Some(ref email) = user_info.email {
+                if !email.is_empty() && acc.email != *email {
+                    acc.email = email.clone();
+                    changed = true;
+                }
+            }
+            if changed {
+                acc.updated_at = chrono::Utc::now().timestamp();
+            }
+        }
+        if changed {
+            self.save_store()?;
+        }
+        Ok(changed)
     }
 }

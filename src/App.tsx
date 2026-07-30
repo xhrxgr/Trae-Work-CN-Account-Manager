@@ -79,7 +79,6 @@ function App() {
 
   // 加载账号列表
   const loadAccounts = useCallback(async () => {
-    setLoading(true);
     try {
       const list = await api.getAccounts();
       setAccounts(list);
@@ -432,7 +431,7 @@ function App() {
         )}
 
         <div className={`page-content ${currentPage === "instances" ? "active" : "hidden"}`}>
-          <Instances accounts={accounts} onRefreshAccounts={loadAccounts} />
+          <Instances accounts={accounts} onRefreshAccounts={loadAccounts} onToast={addToast} />
         </div>
 
         <div className={`page-content ${currentPage === "accounts" ? "active" : "hidden"}`}>

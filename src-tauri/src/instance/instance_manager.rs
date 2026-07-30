@@ -702,40 +702,46 @@ impl InstanceManager {
             let token = account.jwt_token.as_ref()
                 .ok_or_else(|| anyhow!("账号没有有效 Token"))?;
 
-            let login_info = machine::TraeLoginInfo {
-                token: token.clone(),
-                refresh_token: account.refresh_token.clone(),
-                user_id: account.user_id.clone(),
-                email: account.email.clone(),
-                username: account.name.clone(),
-                avatar_url: account.avatar_url.clone(),
-                host: String::new(),
-                region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
-            };
+            // 实例已运行时不写入，避免覆盖 TRAE 运行中刷新的 token
+            let (is_running, _) = machine::is_instance_running(&data_dir);
+            if is_running {
+                println!("[INFO] 实例正在运行，跳过写入登录信息（避免覆盖 TRAE 刷新的 token）");
+            } else {
+                let login_info = machine::TraeLoginInfo {
+                    token: token.clone(),
+                    refresh_token: account.refresh_token.clone(),
+                    user_id: account.user_id.clone(),
+                    email: account.email.clone(),
+                    username: account.name.clone(),
+                    avatar_url: account.avatar_url.clone(),
+                    host: String::new(),
+                    region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+                };
 
-            machine::write_login_info_to_dir(
-                &login_info,
-                account.machine_id.as_deref(),
-                &data_dir,
-            )?;
+                machine::write_login_info_to_dir(
+                    &login_info,
+                    account.machine_id.as_deref(),
+                    &data_dir,
+                )?;
 
-            // 设置窗口标题（通过 settings.json 的 window.title，持久化且跨重启）
-            let title = format!("{} - TRAE Work CN", inst_name);
-            let _ = machine::write_window_title_to_dir(&data_dir, &title);
+                // 设置窗口标题（通过 settings.json 的 window.title，持久化且跨重启）
+                let title = format!("{} - TRAE Work CN", inst_name);
+                let _ = machine::write_window_title_to_dir(&data_dir, &title);
 
-            // 绑定后自动启动 TRAE
-            #[cfg(target_os = "windows")]
-            let shared_ext = std::env::var("APPDATA")
-                .ok()
-                .map(|p| PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
-            #[cfg(not(target_os = "windows"))]
-            let shared_ext = None;
+                // 绑定后自动启动 TRAE
+                #[cfg(target_os = "windows")]
+                let shared_ext = std::env::var("APPDATA")
+                    .ok()
+                    .map(|p| PathBuf::from(p).join("TRAE SOLO CN_SharedExtensions").to_string_lossy().to_string());
+                #[cfg(not(target_os = "windows"))]
+                let shared_ext = None;
 
-            machine::open_product_with_data_dir(
-                machine::ProductType::TraeSoloCn,
-                &data_dir,
-                shared_ext.as_deref(),
-            )?;
+                machine::open_product_with_data_dir(
+                    machine::ProductType::TraeSoloCn,
+                    &data_dir,
+                    shared_ext.as_deref(),
+                )?;
+            }
         }
 
         self.save_store()?;
@@ -756,25 +762,45 @@ impl InstanceManager {
 
         let (is_running, _pid) = machine::is_instance_running(&data_dir);
 
-        // 如果绑定了账号，先写入登录信息（确保第一次启动时有凭证）
-        if let Some(ref aid) = bound_account_id {
-            if let Some(account) = account_manager.get_account_ref(aid) {
-                if let Some(token) = account.jwt_token.as_ref() {
-                    let login_info = machine::TraeLoginInfo {
-                        token: token.clone(),
-                        refresh_token: account.refresh_token.clone(),
-                        user_id: account.user_id.clone(),
-                        email: account.email.clone(),
-                        username: account.name.clone(),
-                        avatar_url: account.avatar_url.clone(),
-                        host: String::new(),
-                        region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
-                    };
-                    let _ = machine::write_login_info_to_dir(
-                        &login_info,
-                        account.machine_id.as_deref(),
-                        &data_dir,
-                    );
+        // 关键修复：实例已运行时不重写 storage.json，避免覆盖 TRAE 运行期间刷新的 token
+        if !is_running {
+            if let Some(ref aid) = bound_account_id {
+                if let Some(account) = account_manager.get_account_ref(aid) {
+                    if let Some(token) = account.jwt_token.as_ref() {
+                        // 检查 storage.json 是否已有同一用户的登录信息
+                        // 如果已有，不覆盖（TRAE 可能已刷新 token，覆盖会导致登录失效）
+                        let existing_user_id = machine::read_trae_login_from_dir(&data_dir)
+                            .ok()
+                            .flatten()
+                            .map(|info| info.user_id);
+
+                        let should_write = match existing_user_id {
+                            Some(existing_uid) => existing_uid != account.user_id,
+                            None => true, // 无现有登录信息，需要写入
+                        };
+
+                        if should_write {
+                            let login_info = machine::TraeLoginInfo {
+                                token: token.clone(),
+                                refresh_token: account.refresh_token.clone(),
+                                user_id: account.user_id.clone(),
+                                email: account.email.clone(),
+                                username: account.name.clone(),
+                                avatar_url: account.avatar_url.clone(),
+                                host: String::new(),
+                                region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+                            };
+                            if let Err(e) = machine::write_login_info_to_dir(
+                                &login_info,
+                                account.machine_id.as_deref(),
+                                &data_dir,
+                            ) {
+                                println!("[WARN] 写入登录信息失败: {}", e);
+                            }
+                        } else {
+                            println!("[INFO] storage.json 已有该账号登录信息，跳过覆盖（保留 TRAE 刷新的 token）");
+                        }
+                    }
                 }
             }
         }
