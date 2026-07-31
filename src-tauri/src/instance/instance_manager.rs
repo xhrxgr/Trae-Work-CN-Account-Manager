@@ -33,12 +33,13 @@ pub struct SafeCleanItem {
 /// 三段式重构（v1.0.37）：实例启动前的准备数据
 /// 在 instance_manager 锁内收集，锁外做文件 I/O + 进程启动，最后回到锁内 apply。
 /// is_running=true 时 login_info 必为 None（避免覆盖 TRAE 运行期间刷新的 token）。
+/// v1.0.39：is_running=false 时始终构造 login_info（含新的随机 devDeviceId）。
 pub struct InstanceLaunchContext {
     /// 实例的 data_dir，用于锁外写登录信息 / 启动进程
     pub data_dir: String,
     /// 实例名（用于窗口标题）
     pub inst_name: String,
-    /// 登录信息（None 表示不写 storage.json：实例运行中、未绑定账号、或同账号已登录）
+    /// 登录信息（v1.0.39：实例未运行且绑定了账号时始终有值，含新的随机 devDeviceId）
     pub login_info: Option<machine::TraeLoginInfo>,
     /// 账号绑定的机器码（与 login_info 配对，写 storage.json 时使用）
     pub machine_id: Option<String>,
@@ -935,9 +936,9 @@ impl InstanceManager {
     }
 
     /// 收集 launch_instance 命令所需数据（锁内快速调用）
-    /// - 校验实例存在
-    /// - 若实例未运行且绑定了账号：检查 storage.json 现有登录用户
-    ///   若与绑定账号 user_id 不同才构造 login_info（避免覆盖 TRAE 刷新的 token）
+/// - 校验实例存在
+/// - 若实例未运行且绑定了账号：始终构造 login_info（含新的随机 devDeviceId）
+///   使每个实例拥有独立的设备标识，适配每日签到等按设备去重的场景
     pub fn prepare_launch_context(
         &self,
         instance_id: &str,
@@ -961,33 +962,19 @@ impl InstanceManager {
             if let Some(ref aid) = bound_account_id {
                 if let Some(account) = account_manager.get_account_ref(aid) {
                     if let Some(token) = account.jwt_token.as_ref() {
-                        // 检查 storage.json 是否已有同一用户的登录信息
-                        // 如果已有，不覆盖（TRAE 可能已刷新 token，覆盖会导致登录失效）
-                        let existing_user_id = machine::read_trae_login_from_dir(&data_dir)
-                            .ok()
-                            .flatten()
-                            .map(|info| info.user_id);
-
-                        let should_write = match existing_user_id {
-                            Some(existing_uid) => existing_uid != account.user_id,
-                            None => true, // 无现有登录信息，需要写入
-                        };
-
-                        if should_write {
-                            login_info = Some(machine::TraeLoginInfo {
-                                token: token.clone(),
-                                refresh_token: account.refresh_token.clone(),
-                                user_id: account.user_id.clone(),
-                                email: account.email.clone(),
-                                username: account.name.clone(),
-                                avatar_url: account.avatar_url.clone(),
-                                host: String::new(),
-                                region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
-                            });
-                            machine_id = account.machine_id.clone();
-                        } else {
-                            println!("[INFO] storage.json 已有该账号登录信息，跳过覆盖（保留 TRAE 刷新的 token）");
-                        }
+                        // 始终写入登录信息（含新的随机 devDeviceId），使每个实例有独立的设备标识
+                        // 注意：升级后首次启动需要重新登录，因为 devDeviceId 变化会导致服务端校验不通过
+                        login_info = Some(machine::TraeLoginInfo {
+                            token: token.clone(),
+                            refresh_token: account.refresh_token.clone(),
+                            user_id: account.user_id.clone(),
+                            email: account.email.clone(),
+                            username: account.name.clone(),
+                            avatar_url: account.avatar_url.clone(),
+                            host: String::new(),
+                            region: if account.region.is_empty() { "CN".to_string() } else { account.region.clone() },
+                        });
+                        machine_id = account.machine_id.clone();
                     }
                 }
             }
